@@ -69,43 +69,45 @@ def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
     fault = model_output.get("primary_defect")
     confidence = model_output.get("confidence")
     return (
-        "You are an expert solar PV operations assistant with deep knowledge of fault detection, maintenance procedures, and safety protocols.\n"
-        "Your task is to provide DETAILED, COMPREHENSIVE, and ACTIONABLE guidance based on AI predictions and company maintenance knowledge.\n"
-        "Be concise and prioritize clear, point-by-point guidance suitable for field technicians.\n\n"
-        "═════════════════════════════════════════════════════════════════\n"
-        "ML MODEL DETECTION RESULT:\n"
-        "═════════════════════════════════════════════════════════════════\n"
-        f"Detected Issue: {fault}\n"
-        f"Confidence Level: {confidence:.2%}\n\n"
-        "═════════════════════════════════════════════════════════════════\n"
-        "RETRIEVED MAINTENANCE KNOWLEDGE & PROCEDURES:\n"
-        "═════════════════════════════════════════════════════════════════\n"
-        f"{rag_context}\n\n"
-        "═════════════════════════════════════════════════════════════════\n"
-        "COMPREHENSIVE RESPONSE REQUIRED:\n"
-        "═════════════════════════════════════════════════════════════════\n\n"
-        "Please provide a concise, well-structured response with ALL of the following sections.\n"
-        "Each section should be clear and point-by-point:\n\n"
-        "1️⃣ WHAT IS THIS FAULT? (Explanation in Simple Language)\n"
-        "   ► 3–5 short bullet points (one sentence each): what it is; immediate impact; long-term impact (if any); main safety concerns; typical causes.\n\n"
-        "2️⃣ WHAT SHOULD BE DONE IMMEDIATELY? (Recommended Action)\n"
-        "   1. Start with the exact first step to take (be specific)\n"
-        "   2. List immediate mitigation measures to reduce risk or damage\n"
-        "   3. State required safety precautions and PPE\n"
-        "   4. State who to notify (roles or team)\n\n"
-        "3️⃣ HOW TO FIX IT? (Detailed Maintenance Procedure)\n"
-        "   ► Provide step-by-step instructions following the relevant SOP\n"
-        "   ► Include preparation steps before work begins\n"
-        "   ► Detail the exact method, tools, and materials needed\n"
-        "   ► Explain post-action verification steps\n"
-        "   ► Include any documentation or logging requirements\n\n"
-        "4️⃣ HOW URGENT IS THIS? (Urgency Assessment & Timeline)\n"
-        "   ► Assess urgency level: CRITICAL / HIGH / MEDIUM / LOW\n"
-        "   ► Explain the reasoning behind this urgency level\n"
-        "   ► Recommend action timeline (hours, days, weeks)\n"
-        "   ► Suggest preventive measures to avoid recurrence\n"
-        "   ► Recommend follow-up inspection schedule\n\n"
-        "Provide clear, practical guidance for each section; keep sections concise and actionable.\n"
+        "You are a solar PV operations assistant. You must produce a professional, technician-ready report.\n"
+        "Use ONLY the retrieved maintenance knowledge below. Do NOT invent thresholds, SOP steps, or safety rules.\n"
+        "If the retrieved knowledge does not contain an item, write: 'Not found in retrieved knowledge.'\n\n"
+
+        "OUTPUT FORMAT (must follow exactly):\n"
+        "- Output must be Markdown (GitHub-flavored).\n"
+        "- No preamble, no greeting, no emojis.\n"
+        "- Use short paragraphs + bullet points.\n"
+        "- Use these exact section headings and order.\n\n"
+
+        "## Summary\n"
+        "- **Fault:** <fault>\n"
+        "- **Confidence:** <confidence_percent>\n"
+        "- **Urgency:** <Low | Medium | High | Critical>\n"
+        "- **Recommended next step:** <one line>\n"
+        "\n"
+        "## 1) What this fault means\n"
+        "- 3–5 bullets in simple language.\n"
+        "\n"
+        "## 2) Immediate actions (first 15–30 minutes)\n"
+        "- At least 5 bullets.\n"
+        "- Must include: first step, safety/PPE, who to notify (roles).\n"
+        "\n"
+        "## 3) Maintenance procedure (SOP-aligned)\n"
+        "- Step-by-step bullets.\n"
+        "- Must include: tools/materials, do-not-do warnings (if present), post-action verification.\n"
+        "\n"
+        "## 4) Documentation & follow-up\n"
+        "- Bullets for logging, evidence, and follow-up inspection schedule.\n"
+        "\n"
+        "## 5) What information is still needed\n"
+        "- Bullets describing what a technician should confirm on-site before final decisions.\n\n"
+
+        "INPUT (ML OUTPUT):\n"
+        f"- Fault: {fault}\n"
+        f"- Confidence: {confidence:.2%}\n\n"
+
+        "RETRIEVED KNOWLEDGE (verbatim):\n"
+        f"{rag_context}\n"
     )
 
 
@@ -130,7 +132,7 @@ def generate_recommendation(*, model_output: Dict[str, Any], rag_context: str, m
             
             payload = {
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.6, "maxOutputTokens": int(max_output_tokens)},
+                "generationConfig": {"temperature": 0.3, "maxOutputTokens": int(max_output_tokens)},
             }
 
             resp = requests.post(url, json=payload, timeout=120)
@@ -171,15 +173,9 @@ def generate_recommendation(*, model_output: Dict[str, Any], rag_context: str, m
             
             # Post-process the response to ensure proper markdown formatting
             formatted = raw_text
-            formatted = formatted.replace("### ", "## ")  # Standardize headers
-            formatted = formatted.replace("## 1", "## 1️⃣")  # Add emojis to sections
-            formatted = formatted.replace("## 2", "## 2️⃣")
-            formatted = formatted.replace("## 3", "## 3️⃣")
-            formatted = formatted.replace("## 4", "## 4️⃣")
-            
-            # Ensure proper line breaks
-            formatted = formatted.replace("---", "\n\n---\n\n")
+            formatted = formatted.replace("\r\n", "\n")
             formatted = formatted.replace("\n\n\n", "\n\n")
+            formatted = formatted.replace("---", "\n\n---\n\n")
             
             print(f"[Success] Generated recommendation using API key #{key_idx + 1}")
             return formatted
