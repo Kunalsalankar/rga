@@ -17,6 +17,21 @@ SECTION A: Defect impact (factual)
 - Typical impact: Can lead to moisture ingress and insulation degradation; may cause rapid performance decline.
 - Risk notes: May increase electrical safety risk depending on severity and location.
 
+4) Clean
+- Description: Panel surface is clean with no visible soiling, bird droppings, or debris.
+- Typical impact: Normal power output; no performance degradation expected from surface contamination.
+- Risk notes: Clean panels require standard maintenance schedules; no immediate action required.
+
+5) Electrical-damage
+- Description: Damage to electrical components, wiring, connectors, or cell interconnects; may include burn marks or discoloration.
+- Typical impact: Potential risk of circuit interruption, short circuits, or fire hazard; may cause sudden performance loss or safety hazard.
+- Risk notes: Requires immediate electrical isolation and professional assessment; may pose safety risk to technicians.
+
+6) Snow-Covered
+- Description: Panel surface covered with snow, ice, or frost accumulation.
+- Typical impact: Complete or near-complete blockage of light; power output severely reduced during winter/cold conditions.
+- Risk notes: May clear naturally or require supervised removal; risk of thermal shock if warm water used for melting; avalanche risk in high-angle installations.
+
 SECTION B: Company maintenance SOP excerpts (example)
 
 SOP-CLEAN-001 (Routine cleaning)

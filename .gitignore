@@ -2,3 +2,10 @@
 .env
 .env.*
 __pycache__/
+
+vector_db/
+outputs/
+
+.pytest_cache/
+.mypy_cache/
+*.pyc
