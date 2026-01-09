@@ -75,7 +75,7 @@ def query_rag(
     store: VectorStore,
     *,
     model_output: Dict[str, Any],
-    k: int = 5,
+    k: int = 10,
 ) -> str:
     """Main entry point: ML output -> retrieval -> plain text context.
 

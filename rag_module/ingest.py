@@ -12,8 +12,8 @@ def ingest_knowledge(
     *,
     knowledge_texts: List[str],
     sources: Optional[List[str]] = None,
-    chunk_size: int = 600,
-    chunk_overlap: int = 80,
+    chunk_size: int = 1200,
+    chunk_overlap: int = 200,
 ) -> int:
     """Ingests raw knowledge texts into the vector database.
 

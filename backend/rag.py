@@ -38,7 +38,7 @@ def retrieve_context_from_model_output(
     *,
     store: ChromaVectorStore,
     model_output: Dict[str, Any],
-    k: int = 3,
+    k: int = 10,
 ) -> Tuple[str, str]:
     query = build_query_from_ml_output(model_output)
     chunks = store.similarity_search(query, k=k)
