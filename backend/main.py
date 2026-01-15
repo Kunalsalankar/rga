@@ -12,6 +12,8 @@ from .gemini import GeminiRateLimit, generate_recommendation
 from .onnx_infer import predict_image_bytes
 from .rag import ensure_ingested, get_store, retrieve_context_from_model_output
 
+import requests
+from fastapi.responses import Response
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -29,6 +31,7 @@ app = FastAPI()
 
 store = get_store()
 
+ESP32_CAM_URL = "http://192.168.1.50/capture"  # change to your ESP32 IP
 
 @app.on_event("startup")
 def _startup() -> None:
@@ -45,6 +48,17 @@ def index() -> FileResponse:
     if not index_path.exists():
         raise HTTPException(status_code=500, detail="frontend/index.html not found")
     return FileResponse(str(index_path))
+
+
+@app.get("/esp32-image")
+def esp32_image():
+    try:
+        r = requests.get(ESP32_CAM_URL, timeout=5)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"ESP32-CAM not reachable: {e}")
+
+    return Response(content=r.content, media_type="image/jpeg")
 
 
 @app.post("/analyze")
