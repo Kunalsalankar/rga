@@ -14,6 +14,7 @@ from .rag import ensure_ingested, get_store, retrieve_context_from_model_output
 
 import requests
 from fastapi.responses import Response
+from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -31,7 +32,10 @@ app = FastAPI()
 
 store = get_store()
 
-ESP32_CAM_URL = "http://192.168.1.50/capture"  # change to your ESP32 IP
+CAPTURE_DIR = PROJECT_ROOT / "captures"
+CAPTURE_DIR.mkdir(exist_ok=True)
+
+ESP32_CAM_URL = "http://10.149.87.244/capture" 
 
 @app.on_event("startup")
 def _startup() -> None:
@@ -40,6 +44,9 @@ def _startup() -> None:
 
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    app.mount(
+    "/captures",StaticFiles(directory=str(CAPTURE_DIR)),name="captures",)
+
 
 
 @app.get("/")
@@ -60,6 +67,26 @@ def esp32_image():
 
     return Response(content=r.content, media_type="image/jpeg")
 
+
+@app.post("/capture-and-store")
+def capture_and_store():
+    try:
+        r = requests.get(ESP32_CAM_URL, timeout=5)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"ESP32-CAM not reachable: {e}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"esp32_{timestamp}.jpg"
+    file_path = CAPTURE_DIR / filename
+
+    with open(file_path, "wb") as f:
+        f.write(r.content)
+
+    return {
+        "message": "Image captured and stored successfully",
+        "filename": filename
+    }
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...), debug: int = Query(0)):

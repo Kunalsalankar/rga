@@ -12,6 +12,8 @@ const confidenceText = document.getElementById('confidenceText');
 const ragCards = document.getElementById('ragCards');
 const geminiText = document.getElementById('geminiText');
 
+const captureBtn = document.getElementById('captureBtn');
+
 let currentFile = null;
 
 function formatGeminiResponse(text) {
@@ -471,3 +473,42 @@ analyzeBtn.addEventListener('click', async () => {
     setLoading(false);
   }
 });
+
+captureBtn.addEventListener("click", async () => {
+  alert("Capture button clicked");
+  setError('');
+  captureBtn.disabled = true;
+  captureBtn.innerText = "Capturing…";
+
+  try {
+    // 1. Capture & store on backend
+    const res = await fetch("/capture-and-store", { method: "POST" });
+    if (!res.ok) throw new Error("ESP32 capture failed");
+
+    const data = await res.json();
+
+    // 2. Load image for preview
+    const imgUrl = `/captures/${data.filename}?t=${Date.now()}`;
+    preview.src = imgUrl;
+    preview.style.display = 'block';
+    previewEmpty.classList.add('hidden');
+
+    // 3. Fetch image as Blob and convert to File
+    const imgResp = await fetch(imgUrl);
+    const blob = await imgResp.blob();
+
+    currentFile = new File([blob], data.filename, { type: blob.type });
+
+    // 4. Enable analyze button properly
+    analyzeBtn.disabled = false;
+
+    result.classList.add('hidden');
+
+  } catch (err) {
+    setError("Failed to capture image from ESP32-CAM");
+  } finally {
+    captureBtn.disabled = false;
+    captureBtn.innerText = "Capture Image (ESP32)";
+  }
+});
+
