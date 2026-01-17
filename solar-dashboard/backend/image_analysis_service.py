@@ -55,12 +55,16 @@ try:
     # Try to get API key from environment or .env file
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or os.environ.get('GEMINI_API_KEYS')
     if GEMINI_API_KEY and ',' in GEMINI_API_KEY:
-        # If multiple keys (comma-separated), use the first one
-        GEMINI_API_KEY = GEMINI_API_KEY.split(',')[0].strip()
+        # If multiple keys (comma-separated), use the first one and strip all whitespace
+        keys = [k.strip() for k in GEMINI_API_KEY.split(',')]
+        GEMINI_API_KEY = keys[0]
+        logger.info(f"Multiple API keys found, using key #1")
+    elif GEMINI_API_KEY:
+        GEMINI_API_KEY = GEMINI_API_KEY.strip()
     
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        logger.info("✓ Gemini API configured")
+        logger.info(f"✓ Gemini API configured with key: {GEMINI_API_KEY[:20]}...")
     else:
         logger.warning("✗ GEMINI_API_KEY not set")
 except ImportError as e:
@@ -147,8 +151,7 @@ async def health_check():
     }
 
 
-@app.post("/analyze-image")
-async def analyze_image(
+async def _analyze_image_impl(
     image: UploadFile = File(...),
     panel_id: str = Form("Unknown")
 ):
@@ -289,6 +292,24 @@ async def root():
         },
         "status": "running on port 8000"
     }
+
+
+@app.post("/analyze")
+async def analyze(
+    image: UploadFile = File(...),
+    panel_id: str = Form("Unknown")
+):
+    """Main analyze endpoint (alias for /analyze-image)"""
+    return await _analyze_image_impl(image, panel_id)
+
+
+@app.post("/analyze-image")
+async def analyze_image(
+    image: UploadFile = File(...),
+    panel_id: str = Form("Unknown")
+):
+    """Analyze a solar panel image using ML model, RAG, and Gemini AI (legacy endpoint)"""
+    return await _analyze_image_impl(image, panel_id)
 
 
 if __name__ == "__main__":

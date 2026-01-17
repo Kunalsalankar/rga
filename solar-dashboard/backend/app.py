@@ -1,6 +1,6 @@
 import sys
 import os
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 import requests
 from dotenv import load_dotenv
@@ -147,6 +147,36 @@ def _get_dummy_sensor_data(asset_id):
             "I": {"value": 8.5, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}}
         }
     }
+
+@app.route("/api/camera/feed", methods=["GET"])
+def get_camera_feed():
+    """Proxy endpoint to fetch camera feed from ESP32 camera"""
+    try:
+        camera_url = request.args.get("url")
+        
+        if not camera_url:
+            return jsonify({"error": "Camera URL parameter is required"}), 400
+        
+        print(f"📷 Fetching camera feed from: {camera_url}")
+        
+        # Fetch image from camera
+        response = requests.get(camera_url, timeout=10)
+        response.raise_for_status()
+        
+        # Return image with appropriate headers
+        return Response(response.content, mimetype=response.headers.get('content-type', 'image/jpeg'))
+        
+    except requests.exceptions.Timeout:
+        print(f"⏱️ Camera request timeout")
+        return jsonify({"error": "Camera request timeout"}), 504
+        
+    except requests.exceptions.ConnectionError:
+        print(f"❌ Cannot connect to camera at {camera_url}")
+        return jsonify({"error": f"Cannot connect to camera. Make sure it's online at {camera_url}"}), 503
+        
+    except Exception as e:
+        print(f"❌ Error fetching camera feed: {e}")
+        return jsonify({"error": "Failed to fetch camera feed", "message": str(e)}), 500
 
 if __name__ == "__main__":
     print("🚀 Starting Solar Dashboard Backend...")

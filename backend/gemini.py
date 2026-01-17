@@ -68,47 +68,191 @@ def _pick_model() -> str:
 def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
     fault = model_output.get("primary_defect")
     confidence = model_output.get("confidence")
+    panel_id = model_output.get("panel_id", "Unknown")
+    
+    # Define defect-specific contexts for more precise LLM guidance
+    defect_contexts = {
+        "Dusty": {
+            "urgency_threshold": 0.7,
+            "safety_risk": "Low - accumulation can mask other issues",
+            "typical_actions": "Cleaning with deionized water, early morning/evening timing to reduce thermal stress",
+            "inspection_focus": "Surface cleanliness, residue verification, cracks under dust",
+        },
+        "Bird-drop": {
+            "urgency_threshold": 0.6,
+            "safety_risk": "Medium - can create localized hotspots and mismatch losses",
+            "typical_actions": "Careful removal, subsequent cleaning, hotspot monitoring",
+            "inspection_focus": "Hotspot development, thermal imaging confirmation, cell integrity",
+        },
+        "Physical-Damage": {
+            "urgency_threshold": 0.5,
+            "safety_risk": "High - may cause moisture ingress and rapid performance decline",
+            "typical_actions": "Immediate visual assessment, potential electrical isolation",
+            "inspection_focus": "Crack severity, encapsulation integrity, frame gaps, conductor exposure",
+        },
+        "Electrical-damage": {
+            "urgency_threshold": 0.4,
+            "safety_risk": "Critical - fire hazard, electrical shock risk",
+            "typical_actions": "Immediate isolation, professional assessment required, safety protocols",
+            "inspection_focus": "Burn marks, discoloration, connector integrity, conductor damage",
+        },
+        "Snow-Covered": {
+            "urgency_threshold": 0.8,
+            "safety_risk": "Medium - no immediate electrical hazard, but complete power loss",
+            "typical_actions": "Monitor for natural melting, avoid thermal shock from hot water",
+            "inspection_focus": "Ice/snow accumulation depth, underlying panel condition after removal",
+        },
+        "Clean": {
+            "urgency_threshold": 1.0,
+            "safety_risk": "None - normal operation",
+            "typical_actions": "Standard maintenance schedule, no immediate intervention",
+            "inspection_focus": "Routine performance monitoring, schedule next maintenance",
+        },
+    }
+    
+    defect_info = defect_contexts.get(fault, {})
+    urgency_level = _determine_urgency(fault, confidence, defect_info)
+    
     return (
-        "You are a solar PV operations assistant. You must produce a professional, technician-ready report.\n"
-        "Use ONLY the retrieved maintenance knowledge below. Do NOT invent thresholds, SOP steps, or safety rules.\n"
-        "If the retrieved knowledge does not contain an item, write: 'Not found in retrieved knowledge.'\n\n"
-
-        "OUTPUT FORMAT (must follow exactly):\n"
-        "- Output must be Markdown (GitHub-flavored).\n"
-        "- No preamble, no greeting, no emojis.\n"
-        "- Use short paragraphs + bullet points.\n"
-        "- Use these exact section headings and order.\n\n"
-
+        "You are an expert solar PV operations assistant specialized in defect identification and technician guidance.\n"
+        "DEFECT TYPE: " + fault + "\n"
+        "PANEL ID: " + panel_id + "\n"
+        "MODEL CONFIDENCE: {:.1%}\n".format(confidence) +
+        "\n"
+        "YOUR TASK:\n"
+        "1. Analyze the detected defect using the retrieved solar panel knowledge base\n"
+        "2. Determine severity, impact, and required actions\n"
+        "3. Use ONLY facts from the retrieved knowledge - do NOT invent procedures\n"
+        "4. If critical information is missing, explicitly state 'Not found in retrieved knowledge'\n"
+        "\n"
+        "DEFECT-SPECIFIC CONTEXT:\n"
+        "- Defect: " + fault + "\n"
+        "- Expected Urgency Threshold: " + str(defect_info.get("urgency_threshold", "N/A")) + "\n"
+        "- Safety Risk Level: " + defect_info.get("safety_risk", "Unknown") + "\n"
+        "- Typical Maintenance Actions: " + defect_info.get("typical_actions", "Unknown") + "\n"
+        "- Critical Inspection Points: " + defect_info.get("inspection_focus", "Unknown") + "\n"
+        "\n"
+        "OUTPUT FORMAT (STRICTLY FOLLOW):\n"
+        "Use GitHub-flavored Markdown. No preamble, no greeting, no emojis.\n"
+        "Section headings must be exactly as shown. Use bullet points for details.\n"
+        "\n"
         "## Summary\n"
-        "- **Fault:** <fault>\n"
-        "- **Confidence:** <confidence_percent>\n"
-        "- **Urgency:** <Low | Medium | High | Critical>\n"
-        "- **Recommended next step:** <one line>\n"
+        "| Field | Value |\n"
+        "|-------|-------|\n"
+        "| **Panel ID** | " + panel_id + " |\n"
+        "| **Defect Detected** | " + fault + " |\n"
+        "| **Model Confidence** | {:.1%} |\n".format(confidence) +
+        "| **Urgency Level** | " + urgency_level + " |\n"
+        "| **Action Required** | See immediate actions below |\n"
         "\n"
-        "## 1) What this fault means\n"
-        "- 3–5 bullets in simple language.\n"
+        "## 1) Defect Analysis\n"
+        "### What this defect means:\n"
+        "Explain in simple technical language:\n"
+        "- Physical description of the defect\n"
+        "- Why it occurs on solar panels\n"
+        "- Immediate impacts on power generation\n"
+        "- Secondary risks (if any)\n"
         "\n"
-        "## 2) Immediate actions (first 15–30 minutes)\n"
-        "- At least 5 bullets.\n"
-        "- Must include: first step, safety/PPE, who to notify (roles).\n"
+        "### Expected Power Impact:\n"
+        "- Primary impact (e.g., power loss %, performance ratio drop)\n"
+        "- Timeline of degradation\n"
+        "- Risk of escalation without intervention\n"
         "\n"
-        "## 3) Maintenance procedure (SOP-aligned)\n"
-        "- Step-by-step bullets.\n"
-        "- Must include: tools/materials, do-not-do warnings (if present), post-action verification.\n"
+        "## 2) Safety Assessment\n"
+        "### Immediate Safety Concerns:\n"
+        "- Electrical hazard risk (High/Medium/Low/None)\n"
+        "- Environmental hazard risk (e.g., thermal shock, avalanche)\n"
+        "- Technician safety requirements and PPE\n"
+        "- Isolation requirements (if applicable)\n"
         "\n"
-        "## 4) Documentation & follow-up\n"
-        "- Bullets for logging, evidence, and follow-up inspection schedule.\n"
+        "## 3) Immediate Actions (First 15-30 Minutes)\n"
+        "### Do FIRST:\n"
+        "1. [First safety/assessment step]\n"
+        "2. [Safety isolation/notification if required]\n"
+        "3. [Initial visual confirmation]\n"
+        "4. [Who to notify and escalation path]\n"
+        "5. [Critical next steps]\n"
         "\n"
-        "## 5) What information is still needed\n"
-        "- Bullets describing what a technician should confirm on-site before final decisions.\n\n"
-
-        "INPUT (ML OUTPUT):\n"
-        f"- Fault: {fault}\n"
-        f"- Confidence: {confidence:.2%}\n\n"
-
-        "RETRIEVED KNOWLEDGE (verbatim):\n"
+        "### DO NOT:\n"
+        "- [List any warnings about incorrect procedures]\n"
+        "- [Safety violations to avoid]\n"
+        "\n"
+        "## 4) Maintenance Procedure (SOP-Based)\n"
+        "### Required Equipment & Materials:\n"
+        "- [Tools needed]\n"
+        "- [Safety equipment]\n"
+        "- [Consumables/consumables]\n"
+        "\n"
+        "### Step-by-Step Procedure:\n"
+        "1. [Preparation step]\n"
+        "2. [Main procedure step]\n"
+        "3. [Verification step]\n"
+        "[Continue with actual SOP steps from knowledge base]\n"
+        "\n"
+        "### Post-Action Verification:\n"
+        "- Visual inspection checklist\n"
+        "- Performance testing requirements\n"
+        "- Success criteria\n"
+        "\n"
+        "## 5) Documentation & Follow-up\n"
+        "### Required Documentation:\n"
+        "- Panel ID, defect type, severity\n"
+        "- Date/time of detection and action\n"
+        "- Technician name and credentials\n"
+        "- Before/after photos (if applicable)\n"
+        "- Performance metrics post-repair\n"
+        "\n"
+        "### Follow-up Schedule:\n"
+        "- Next inspection date\n"
+        "- Monitoring frequency\n"
+        "- Performance baseline to track\n"
+        "- Escalation triggers for re-inspection\n"
+        "\n"
+        "## 6) Information Needed for Final Decision\n"
+        "### On-site confirmation required:\n"
+        "- [Specific measurements or observations needed]\n"
+        "- [Environmental factors to verify]\n"
+        "- [Performance data to collect]\n"
+        "- [Risk factors to assess]\n"
+        "\n"
+        "---\n\n"
+        "RETRIEVED KNOWLEDGE BASE (Use these facts only):\n"
         f"{rag_context}\n"
     )
+
+
+def _determine_urgency(defect: str, confidence: float, defect_info: Dict[str, Any]) -> str:
+    """Determine urgency level based on defect type and confidence."""
+    threshold = defect_info.get("urgency_threshold", 0.6)
+    
+    if defect in ("Electrical-damage", "Physical-Damage"):
+        if confidence > 0.8:
+            return "CRITICAL - Immediate action required (within 1 hour)"
+        elif confidence > threshold:
+            return "HIGH - Action required same day"
+        else:
+            return "MEDIUM - Action required within 48 hours"
+    
+    elif defect == "Snow-Covered":
+        if confidence > 0.9:
+            return "MEDIUM - Monitor, action if not clearing naturally"
+        else:
+            return "LOW - Monitor for natural clearance"
+    
+    elif defect == "Bird-drop":
+        if confidence > 0.7:
+            return "MEDIUM - Schedule cleaning and monitoring"
+        else:
+            return "LOW-MEDIUM - Verify and schedule cleaning"
+    
+    elif defect == "Dusty":
+        if confidence > 0.8:
+            return "LOW-MEDIUM - Schedule cleaning soon"
+        else:
+            return "LOW - Routine cleaning schedule"
+    
+    else:  # Clean
+        return "LOW - Continue standard monitoring"
 
 
 def generate_recommendation(*, model_output: Dict[str, Any], rag_context: str, max_output_tokens: int = 2500) -> str:

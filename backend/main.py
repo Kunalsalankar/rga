@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from .gemini import GeminiRateLimit, generate_recommendation
 from .onnx_infer import predict_image_bytes
@@ -30,12 +31,22 @@ _load_env()
 
 app = FastAPI()
 
+# Enable CORS for frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 store = get_store()
 
 CAPTURE_DIR = PROJECT_ROOT / "captures"
 CAPTURE_DIR.mkdir(exist_ok=True)
 
-ESP32_CAM_URL = "http://10.149.87.244/capture" 
+# ESP32-CAM configuration - Camera should be accessible at this URL
+ESP32_CAM_URL = os.getenv("ESP32_CAM_URL", "http://10.70.187.244/capture") 
 
 @app.on_event("startup")
 def _startup() -> None:
@@ -64,6 +75,23 @@ def esp32_image():
         r.raise_for_status()
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"ESP32-CAM not reachable: {e}")
+
+    return Response(content=r.content, media_type="image/jpeg")
+
+
+@app.get("/api/camera/feed")
+def camera_feed(url: str = Query(None)):
+    """
+    Proxy endpoint for camera feed. Handles CORS and allows frontend to fetch from camera.
+    If no URL provided, uses default ESP32_CAM_URL.
+    """
+    camera_url = url if url else ESP32_CAM_URL
+    
+    try:
+        r = requests.get(camera_url, timeout=5)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Camera not reachable at {camera_url}: {e}")
 
     return Response(content=r.content, media_type="image/jpeg")
 

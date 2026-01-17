@@ -8,6 +8,59 @@ from rag_module.query import build_query_from_ml_output, format_retrieved_contex
 from rag_module.types import RetrievedChunk
 from rag_module.vectorstores import ChromaVectorStore
 
+# Try to import PDF extraction tools
+try:
+    import PyPDF2
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
+
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+
+
+def _extract_text_from_pdf(pdf_path: Path) -> str:
+    """Extract text from PDF file using available libraries."""
+    if HAS_PDFPLUMBER:
+        try:
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+                return text
+        except Exception as e:
+            print(f"Warning: pdfplumber failed on {pdf_path.name}: {e}")
+    
+    if HAS_PYPDF:
+        try:
+            text = ""
+            with open(pdf_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+            return text
+        except Exception as e:
+            print(f"Warning: PyPDF2 failed on {pdf_path.name}: {e}")
+    
+    print(f"Warning: No PDF extraction library available for {pdf_path.name}")
+    return f"[PDF file: {pdf_path.name} - content extraction not available]\n"
+
+
+def _extract_text_from_knowledge_file(file_path: Path) -> str:
+    """Extract text from knowledge file (txt or pdf)."""
+    if file_path.suffix.lower() == ".pdf":
+        return _extract_text_from_pdf(file_path)
+    elif file_path.suffix.lower() == ".txt":
+        return file_path.read_text(encoding="utf-8")
+    else:
+        print(f"Warning: Unsupported file type: {file_path.suffix}")
+        return ""
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PERSIST_DIR = PROJECT_ROOT / "vector_db" / "chroma"
@@ -64,17 +117,26 @@ def ensure_ingested(store: ChromaVectorStore) -> None:
     if not KNOWLEDGE_DIR.exists():
         raise RuntimeError(f"Knowledge directory not found: {KNOWLEDGE_DIR}")
 
-    txt_files = sorted(KNOWLEDGE_DIR.glob("*.txt"))
-    if not txt_files:
+    # Get all knowledge files (txt and pdf)
+    knowledge_files = sorted(list(KNOWLEDGE_DIR.glob("*.txt")) + list(KNOWLEDGE_DIR.glob("*.pdf")))
+    if not knowledge_files:
         raise RuntimeError(f"No knowledge files found in: {KNOWLEDGE_DIR}")
 
     texts: List[str] = []
     sources: List[str] = []
-    for p in txt_files:
-        texts.append(p.read_text(encoding="utf-8"))
-        sources.append(p.name)
+    for file_path in knowledge_files:
+        print(f"Processing knowledge file: {file_path.name}")
+        content = _extract_text_from_knowledge_file(file_path)
+        if content.strip():
+            texts.append(content)
+            sources.append(file_path.name)
+        else:
+            print(f"Warning: {file_path.name} extracted no content")
 
-    ingest_knowledge(store, knowledge_texts=texts, sources=sources)
+    if texts:
+        ingest_knowledge(store, knowledge_texts=texts, sources=sources)
+    else:
+        raise RuntimeError(f"No content extracted from knowledge files in: {KNOWLEDGE_DIR}")
 
     # Must never be empty after startup.
     try:

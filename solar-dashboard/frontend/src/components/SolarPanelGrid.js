@@ -124,16 +124,15 @@ const SolarPanelGrid = () => {
     fetchPanels();
     fetchPanelData(); // ✅ Fetch sensor data on component mount ONCE
     
-    // Auto-refresh panel data every 15 seconds (increased from 10)
-    const panelInterval = setInterval(fetchPanels, 15000);
+    // DISABLED: Auto-refresh was causing CameraViewer state to reset
+    // Only refresh when user explicitly requests or on manual intervals
+    // const panelInterval = setInterval(fetchPanels, 15000);
+    // const sensorInterval = setInterval(fetchPanelData, 15000);
     
-    // Auto-refresh sensor data every 15 seconds (increased from 8)
-    const sensorInterval = setInterval(fetchPanelData, 15000);
-    
-    return () => {
-      clearInterval(panelInterval);
-      clearInterval(sensorInterval);
-    };
+    // return () => {
+    //   clearInterval(panelInterval);
+    //   clearInterval(sensorInterval);
+    // };
   }, []); // ✅ EMPTY DEPENDENCY ARRAY - only run once on mount
 
   const getHealthColor = (score) => {
@@ -705,11 +704,11 @@ const SolarPanelGrid = () => {
           open={cameraOpen}
           onClose={handleCloseCamera}
           panelId={selectedPanelId}
-          cameraUrl={`http://10.137.185.244/`}
+          cameraUrl={`http://10.70.187.244/capture`}
         />
       )}
     </Box>
   );
-};
+}
 
 export default SolarPanelGrid;
