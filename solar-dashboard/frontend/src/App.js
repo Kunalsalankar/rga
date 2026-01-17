@@ -79,10 +79,13 @@ function App() {
 
   const fetchPanelInfo = async () => {
     try {
-      const response = await axios.get('/api/panel/info');
-      setPanelInfo(response.data);
+      const response = await axios.get(
+        `http://localhost:5000/api/panel/info?panelId=SP-001`,  // ✅ Use port 5000
+        { timeout: 5000 }
+      );
+      console.log("✅ Panel info:", response.data);
     } catch (error) {
-      console.error('Error fetching panel info:', error);
+      console.error("❌ Error fetching panel info:", error);
     }
   };
 

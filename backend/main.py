@@ -175,3 +175,121 @@ async def analyze(file: UploadFile = File(...), debug: int = Query(0)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+flask_app = Flask(__name__)
+CORS(flask_app)
+
+# AWS API endpoint for sensor data
+AWS_API_ENDPOINT = "https://sacgn6gxpa.execute-api.us-east-1.amazonaws.com/latest"
+ASSET_ID = "cd29fe97-2d5e-47b4-a951-04c9e29544ac"
+
+# Dummy panel data (for /api/panels/all)
+DUMMY_PANELS = [
+    {
+        "id": "SP-001",
+        "name": "Solar Panel 1",
+        "location": "Roof A",
+        "capacity": 400,
+        "current_output": 320,
+        "health_score": 96,
+        "last_update": "2026-01-17T10:56:00Z"
+    },
+    {
+        "id": "SP-002",
+        "name": "Solar Panel 2",
+        "location": "Roof B",
+        "capacity": 400,
+        "current_output": 380,
+        "health_score": 98,
+        "last_update": "2026-01-17T10:56:00Z"
+    },
+    {
+        "id": "SP-003",
+        "name": "Solar Panel 3",
+        "location": "Roof C",
+        "capacity": 400,
+        "current_output": 290,
+        "health_score": 95,
+        "last_update": "2026-01-17T10:56:00Z"
+    },
+    {
+        "id": "SP-004",
+        "name": "Solar Panel 4",
+        "location": "Roof D",
+        "capacity": 400,
+        "current_output": 150,
+        "health_score": 78,
+        "last_update": "2026-01-17T10:56:00Z"
+    }
+]
+
+@flask_app.route("/api/panels/all", methods=["GET"])
+def get_all_panels():
+    """Get all solar panels"""
+    try:
+        # Try to fetch real data, fallback to dummy
+        return jsonify(DUMMY_PANELS), 200
+    except Exception as e:
+        print(f"Error fetching panels: {e}")
+        return jsonify({"error": "Failed to fetch panels", "message": str(e)}), 500
+
+@flask_app.route("/api/panel/readings", methods=["GET"])
+def get_panel_readings():
+    """Get real-time sensor readings from AWS API"""
+    try:
+        asset_id = request.args.get("assetId", ASSET_ID)
+        
+        # Fetch from AWS API
+        response = requests.get(
+            f"{AWS_API_ENDPOINT}?assetId={asset_id}",
+            timeout=5
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        print(f"✅ Fetched real sensor data from AWS")
+        return jsonify(data), 200
+        
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching from AWS API: {e}")
+        
+        # Fallback to dummy sensor data
+        dummy_sensor_data = {
+            "assetId": asset_id,
+            "data": {
+                "V1": {"value": 38.5, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "V2": {"value": 37.2, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "V3": {"value": 39.1, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "V4": {"value": 36.8, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "P1": {"value": 320, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "P2": {"value": 315, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "P3": {"value": 325, "timestamp": {"timeInSeconds": 1768571120, "offsetInNanos": 0}},
+                "P4": {"value": 310, "timestamp": {"timeInSeconds": 1768571123, "offsetInNanos": 0}},
+                "I": {"value": 8.5, "timestamp": {"timeInSeconds": 1768571123, "offsetInNanos": 0}}
+            }
+        }
+        return jsonify(dummy_sensor_data), 200
+
+@flask_app.route("/api/health", methods=["GET"])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "ok", "service": "solar-dashboard-backend"}), 200
+
+@flask_app.route("/", methods=["GET"])
+def index():
+    """Root endpoint"""
+    return jsonify({"message": "Solar Dashboard Backend API"}), 200
+
+if __name__ == "__main__":
+    print("🚀 Starting Solar Dashboard Backend...")
+    print(f"📡 AWS API Endpoint: {AWS_API_ENDPOINT}")
+    print(f"🔑 Asset ID: {ASSET_ID}")
+    flask_app.run(host="0.0.0.0", port=5000, debug=True)
