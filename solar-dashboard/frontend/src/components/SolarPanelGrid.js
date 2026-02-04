@@ -5,7 +5,7 @@ import axios from 'axios';
 import CameraViewer from './CameraViewer';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
-const SolarPanelGrid = () => {
+const SolarPanelGrid = ({ onPanelSelect }) => {
   const [panels, setPanels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -368,7 +368,13 @@ const SolarPanelGrid = () => {
             cursor: 'pointer'
           }
         }}
-        onClick={() => handleOpenDetails(panel)}
+        onClick={() => {
+          if (onPanelSelect) {
+            onPanelSelect(panel);
+            return;
+          }
+          handleOpenDetails(panel);
+        }}
       >
         <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
           <Box>
@@ -438,6 +444,18 @@ const SolarPanelGrid = () => {
             </Box>
           </Box>
         </Box>
+
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenDetails(panel);
+          }}
+          sx={{ mt: 1.5 }}
+        >
+          View Details
+        </Button>
 
         <Button
           fullWidth
@@ -572,10 +590,10 @@ const SolarPanelGrid = () => {
               {tabValue === 0 && (
                 <Box sx={{ py: 2 }}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">
-                    Current vs Voltage Curve (with I/2)
+                    Current vs Voltage Curve
                   </Typography>
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    ⚠️ Using Current (I/2) = {((panelData?.data?.I?.value || 0) / 2).toFixed(4)}A for all calculations
+                    Current shown in amps (A).
                   </Typography>
                   {generateIVCurveData().length > 0 ? (
                     <ResponsiveContainer width="100%" height={400}>
@@ -593,7 +611,7 @@ const SolarPanelGrid = () => {
                           stroke="#666"
                         />
                         <YAxis 
-                          label={{ value: 'Current (A) = I/2', angle: -90, position: 'insideLeft' }}
+                          label={{ value: 'Current (A)', angle: -90, position: 'insideLeft' }}
                           stroke="#666"
                         />
                         <Tooltip 
@@ -609,7 +627,7 @@ const SolarPanelGrid = () => {
                           strokeWidth={3}
                           dot={{ fill: '#ff9800', r: 6 }}
                           activeDot={{ r: 8 }}
-                          name="Current (I/2)"
+                          name="Current"
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -623,10 +641,10 @@ const SolarPanelGrid = () => {
               {tabValue === 1 && (
                 <Box sx={{ py: 2 }}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">
-                    Power Production (V × I/2)
+                    Power Production (V × I)
                   </Typography>
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    ⚠️ Calculated as: Voltage × (Current ÷ 2) = Voltage × {((panelData?.data?.I?.value || 0) / 2).toFixed(4)}A
+                    Calculated as: Voltage × Current
                   </Typography>
                   {generatePowerTimeline().length > 0 ? (
                     <ResponsiveContainer width="100%" height={400}>
@@ -648,7 +666,7 @@ const SolarPanelGrid = () => {
                         <Bar 
                           dataKey="power" 
                           fill="#2196f3"
-                          name="Power (V × I/2)"
+                          name="Power (V × I)"
                           radius={[8, 8, 0, 0]}
                         />
                       </BarChart>
@@ -665,26 +683,21 @@ const SolarPanelGrid = () => {
                   <Typography variant="h6" gutterBottom fontWeight="bold">
                     Raw Sensor Data (Real-time from AWS)
                   </Typography>
-                  {panelData?.data ? (
+                  {(panelData?.data || panelData) ? (
                     <Grid container spacing={2}>
-                      {Object.entries(panelData.data).map(([key, data]) => (
+                      {Object.entries(panelData?.data || panelData).map(([key, data]) => (
                         <Grid item xs={12} sm={6} key={key}>
                           <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
                             <Typography variant="subtitle2" fontWeight="bold">
                               {key}
-                              {key === 'I' && <span style={{ fontSize: '0.8em', color: '#666' }}> (÷2)</span>}
                             </Typography>
                             <Typography variant="h6" color="primary" sx={{ my: 1 }}>
-                              {key === 'I' 
-                                ? ((data.value || 0) / 2).toFixed(4)
-                                : (data.value !== null ? data.value.toFixed(4) : 'N/A')
-                              }
+                              {data?.value !== null && data?.value !== undefined ? Number(data.value).toFixed(4) : 'N/A'}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
-                              {key === 'I' 
-                                ? `Raw: ${data.value?.toFixed(4)} A → Displayed: ${((data.value || 0) / 2).toFixed(4)} A`
-                                : `Updated: ${new Date(data.timestamp.timeInSeconds * 1000).toLocaleString()}`
-                              }
+                              {data?.timestamp?.timeInSeconds
+                                ? `Updated: ${new Date(data.timestamp.timeInSeconds * 1000).toLocaleString()}`
+                                : ''}
                             </Typography>
                           </Paper>
                         </Grid>
