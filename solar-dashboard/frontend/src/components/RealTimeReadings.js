@@ -16,15 +16,16 @@ import axios from 'axios';
 const RealTimeReadings = ({ reading }) => {
   const [history, setHistory] = useState({ current: [], voltage: [], temperature: [] });
   const [panelData, setPanelData] = useState({
-    P1: { value: null, timestamp: null },
-    P2: { value: null, timestamp: null },
-    P3: { value: null, timestamp: null },
-    P4: { value: null, timestamp: null },
-    I: { value: null, timestamp: null },
+    I1: { value: null, timestamp: null },
+    I2: { value: null, timestamp: null },
     V1: { value: null, timestamp: null },
     V2: { value: null, timestamp: null },
     V3: { value: null, timestamp: null },
-    V4: { value: null, timestamp: null }
+    V4: { value: null, timestamp: null },
+    P1: { value: null, timestamp: null },
+    P2: { value: null, timestamp: null },
+    P3: { value: null, timestamp: null },
+    P4: { value: null, timestamp: null }
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,15 +34,16 @@ const RealTimeReadings = ({ reading }) => {
 
   // Dummy data for fallback
   const DUMMY_DATA = {
-    P1: { value: 245.50, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    P2: { value: 312.75, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    P3: { value: 198.30, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    P4: { value: 267.45, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    I: { value: 0.45, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    V1: { value: 48.5, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    V2: { value: null, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    V3: { value: null, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } },
-    V4: { value: null, timestamp: { timeInSeconds: Math.floor(Date.now() / 1000), offsetInNanos: 0 } }
+    I1: { value: 1, timestamp: Math.floor(Date.now() / 1000) },
+    I2: { value: 2, timestamp: Math.floor(Date.now() / 1000) },
+    V1: { value: 6.46, timestamp: Math.floor(Date.now() / 1000) },
+    V2: { value: 7.07, timestamp: Math.floor(Date.now() / 1000) },
+    V3: { value: 7.35, timestamp: Math.floor(Date.now() / 1000) },
+    V4: { value: 6.75, timestamp: Math.floor(Date.now() / 1000) },
+    P1: { value: 1.84, timestamp: Math.floor(Date.now() / 1000) },
+    P2: { value: 1.84, timestamp: Math.floor(Date.now() / 1000) },
+    P3: { value: 2.72, timestamp: Math.floor(Date.now() / 1000) },
+    P4: { value: 2.72, timestamp: Math.floor(Date.now() / 1000) }
   };
 
   useEffect(() => {
@@ -50,7 +52,7 @@ const RealTimeReadings = ({ reading }) => {
     const interval = setInterval(() => {
       fetchHistory();
       fetchPanelData();
-    }, 5000);
+    }, 30000); // 30 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -66,58 +68,80 @@ const RealTimeReadings = ({ reading }) => {
   const fetchPanelData = async () => {
     try {
       setLoading(true);
-      console.log('Fetching panel data...');
+      console.log('📡 Fetching panel data from AWS API...');
       
-      // Try backend proxy first
-      try {
-        const response = await axios.get(`/api/panel/readings?assetId=${ASSET_ID}`, {
-          timeout: 5000
-        });
-        console.log('✅ Backend proxy response:', response.data);
-        
-        if (response.data && response.data.data) {
-          setPanelData(response.data.data);
-          setError(null);
-          setLoading(false);
-          return;
-        }
-      } catch (proxyError) {
-        console.log('❌ Backend proxy failed, trying direct AWS call...', proxyError.message);
-      }
-
-      // Fallback: Direct API call if proxy not available
-      const externalUrl = `https://sacgn6gxpa.execute-api.us-east-1.amazonaws.com/latest?assetId=${ASSET_ID}`;
-      console.log('Attempting direct fetch from AWS:', externalUrl);
+      const externalUrl = 'https://j8ql0tblwb.execute-api.us-east-1.amazonaws.com/prod/values';
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       const response = await fetch(externalUrl, {
         headers: {
           'Accept': 'application/json'
         },
-        mode: 'cors'
-      });
+        mode: 'cors',
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         throw new Error(`AWS API returned ${response.status}`);
       }
       
       const data = await response.json();
-      console.log('✅ Direct AWS API response:', data);
+      console.log('✅ AWS API response received:', data);
       
-      if (data && data.data) {
-        setPanelData(data.data);
+      if (data) {
+        // Transform API response to match panel data format
+        const transformedData = {};
+        for (const key in data) {
+          transformedData[key] = {
+            value: data[key].value,
+            timestamp: data[key].timestamp
+          };
+        }
+        console.log('✅ Panel data updated:', transformedData);
+        setPanelData(transformedData);
         setError(null);
       }
     } catch (err) {
-      console.error('❌ All API calls failed, using dummy data:', err.message);
-      setPanelData(DUMMY_DATA);
-      setError('Using simulated data');
+      console.error('❌ Error fetching from AWS API:', err.message);
+      setError(`API Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const calculateIndividualCurrent = (totalCurrent) => {
-    return totalCurrent ? (totalCurrent / 2).toFixed(4) : '0.0000';
+  // Calculate panel data based on new specifications
+  const getPanelData = (panelNum) => {
+    let v, i, p;
+    
+    switch(panelNum) {
+      case 1:
+        v = panelData.V1?.value || 0;
+        i = panelData.I1?.value || 0;
+        // Convert mA to A for power calculation: (V * I_mA / 1000) = P in W
+        p = (v * (i / 1000)).toFixed(3);
+        return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
+      case 2:
+        v = panelData.V2?.value || 0;
+        i = panelData.I1?.value || 0;
+        p = (v * (i / 1000)).toFixed(3);
+        return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
+      case 3:
+        v = panelData.V3?.value || 0;
+        i = panelData.I2?.value || 0;
+        p = (v * (i / 1000)).toFixed(3);
+        return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
+      case 4:
+        v = panelData.V4?.value || 0;
+        i = panelData.I2?.value || 0;
+        p = (v * (i / 1000)).toFixed(3);
+        return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
+      default:
+        return { voltage: 'N/A', current: 'N/A', power: 'N/A' };
+    }
   };
 
   const formatTime = (timestamp) => {
@@ -168,8 +192,8 @@ const RealTimeReadings = ({ reading }) => {
     </Paper>
   );
 
-  const totalCurrent = panelData.I?.value || 0;
-  const individualCurrent = calculateIndividualCurrent(totalCurrent);
+  const totalCurrent = panelData.I1?.value || 0;
+  const individualCurrent = panelData.I2?.value || 0;
 
   return (
     <Paper sx={{ p: 3 }}>
@@ -187,19 +211,19 @@ const RealTimeReadings = ({ reading }) => {
         <Grid item xs={12} sm={4}>
           <StatCard
             icon={<Bolt sx={{ fontSize: 32 }} />}
-            title="Total Current"
-            value={typeof totalCurrent === 'number' ? totalCurrent.toFixed(4) : '0.0000'}
-            unit="A"
+            title="Current I1"
+            value={panelData.I1?.value?.toFixed(0) || 'N/A'}
+            unit="mA"
             color="#1976d2"
           />
         </Grid>
         <Grid item xs={12} sm={4}>
           <StatCard
-            icon={<Speed sx={{ fontSize: 32 }} />}
-            title="Voltage"
-            value={panelData.V1?.value?.toFixed(2) || reading?.voltage || 'N/A'}
-            unit="V"
-            color="#2e7d32"
+            icon={<Bolt sx={{ fontSize: 32 }} />}
+            title="Current I2"
+            value={panelData.I2?.value?.toFixed(0) || 'N/A'}
+            unit="mA"
+            color="#1976d2"
           />
         </Grid>
         <Grid item xs={12} sm={4}>
@@ -212,63 +236,44 @@ const RealTimeReadings = ({ reading }) => {
           />
         </Grid>
 
-        {/* Individual Panel Currents */}
+        {/* Solar Panels Data */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>
-            Individual Panel Currents (I/2)
+            Solar Panels
           </Typography>
           <Grid container spacing={2}>
-            {['P1', 'P2', 'P3', 'P4'].map((panel) => (
-              <Grid item xs={12} sm={6} md={3} key={`current-${panel}`}>
-                <StatCard
-                  icon={<Bolt sx={{ fontSize: 28 }} />}
-                  title={`${panel} Current`}
-                  value={individualCurrent}
-                  unit="A"
-                  color="#ff9800"
-                />
-              </Grid>
-            ))}
-          </Grid>
-        </Grid>
-
-        {/* Panel Power Values */}
-        <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>
-            Panel Power Output
-          </Typography>
-          <Grid container spacing={2}>
-            {['P1', 'P2', 'P3', 'P4'].map((panel) => (
-              <Grid item xs={12} sm={6} md={3} key={`power-${panel}`}>
-                <StatCard
-                  icon={<Bolt sx={{ fontSize: 28 }} />}
-                  title={`${panel} Power`}
-                  value={panelData[panel]?.value?.toFixed(2) || 'N/A'}
-                  unit="W"
-                  color="#9c27b0"
-                />
-              </Grid>
-            ))}
-          </Grid>
-        </Grid>
-
-        {/* Panel Voltage Values */}
-        <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>
-            Panel Voltage
-          </Typography>
-          <Grid container spacing={2}>
-            {['V1', 'V2', 'V3', 'V4'].map((voltage) => (
-              <Grid item xs={12} sm={6} md={3} key={`voltage-${voltage}`}>
-                <StatCard
-                  icon={<Speed sx={{ fontSize: 28 }} />}
-                  title={`${voltage}`}
-                  value={panelData[voltage]?.value?.toFixed(2) || 'N/A'}
-                  unit="V"
-                  color="#2196f3"
-                />
-              </Grid>
-            ))}
+            {[1, 2, 3, 4].map((panelNum) => {
+              const data = getPanelData(panelNum);
+              return (
+                <Grid item xs={12} sm={6} md={3} key={`panel-${panelNum}`}>
+                  <Paper sx={{ p: 2, background: 'linear-gradient(135deg, #ffc10715 0%, #ffc10705 100%)', border: '2px solid #ffc10730' }}>
+                    <Typography variant="h6" fontWeight="bold" color="#ff9800" gutterBottom>
+                      Panel {panelNum}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Box>
+                        <Typography variant="caption" color="textSecondary">Voltage (V{panelNum}):</Typography>
+                        <Typography variant="body1" fontWeight="bold" color="#2196f3">
+                          {data.voltage} V
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="textSecondary">Current (I{panelNum <= 2 ? '1' : '2'}):</Typography>
+                        <Typography variant="body1" fontWeight="bold" color="#1976d2">
+                          {data.current} mA
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="textSecondary">Power (V × I):</Typography>
+                        <Typography variant="body1" fontWeight="bold" color="#9c27b0">
+                          {data.power} W
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Paper>
+                </Grid>
+              );
+            })}
           </Grid>
         </Grid>
 

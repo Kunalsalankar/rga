@@ -60,18 +60,16 @@ const SolarPanelGrid = () => {
   ];
 
   const DUMMY_SENSOR_DATA = {
-    assetId: ASSET_ID,
-    data: {
-      V1: { value: 38.5, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      V2: { value: 37.2, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      V3: { value: 39.1, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      V4: { value: 36.8, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      P1: { value: 320, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      P2: { value: 315, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      P3: { value: 325, timestamp: { timeInSeconds: 1768571120, offsetInNanos: 0 } },
-      P4: { value: 310, timestamp: { timeInSeconds: 1768571123, offsetInNanos: 0 } },
-      I: { value: 8.5, timestamp: { timeInSeconds: 1768571123, offsetInNanos: 0 } }
-    }
+    I1: { value: 272, timestamp: 1768827220 },
+    I2: { value: 386, timestamp: 1768827220 },
+    P1: { value: 1.84, timestamp: 1768827220 },
+    P2: { value: 1.84, timestamp: 1768827220 },
+    P3: { value: 2.72, timestamp: 1768827220 },
+    P4: { value: 2.72, timestamp: 1768827220 },
+    V1: { value: 6.46, timestamp: 1768827220 },
+    V2: { value: 7.07, timestamp: 1768827220 },
+    V3: { value: 7.35, timestamp: 1768827220 },
+    V4: { value: 6.75, timestamp: 1768827220 }
   };
 
   // Fetch panels from backend
@@ -107,7 +105,8 @@ const SolarPanelGrid = () => {
         { timeout: 10000 } // Increased from 5000ms
       );
       
-      if (response.data && response.data.data) {
+      // New API format returns data directly, not nested
+      if (response.data) {
         console.log('✅ Real sensor data received:', response.data);
         setPanelData(response.data);
       }
@@ -183,53 +182,53 @@ const SolarPanelGrid = () => {
     return { totalOutput, totalCapacity, healthyCount, unhealthyCount, averageHealth };
   };
 
-  // Generate IV Curve data - ACTUAL AWS VALUES with I/2
+  // Generate IV Curve data - ACTUAL AWS VALUES with I1/I2
   const generateIVCurveData = () => {
-    if (!panelData || !panelData.data) return [];
+    if (!panelData) return [];
     
-    const V1 = panelData.data.V1?.value || 0;
-    const V2 = panelData.data.V2?.value || 0;
-    const V3 = panelData.data.V3?.value || 0;
-    const V4 = panelData.data.V4?.value || 0;
-    const current = (panelData.data.I?.value || 0) / 2; // ✅ Divide by 2
+    const V1 = panelData.V1?.value || 0;
+    const V2 = panelData.V2?.value || 0;
+    const V3 = panelData.V3?.value || 0;
+    const V4 = panelData.V4?.value || 0;
+    const I1 = (panelData.I1?.value || 0) / 1000; // Convert mA to A
+    const I2 = (panelData.I2?.value || 0) / 1000; // Convert mA to A
 
     const voltages = [
-      { voltage: V1, label: 'V1' },
-      { voltage: V2, label: 'V2' },
-      { voltage: V3, label: 'V3' },
-      { voltage: V4, label: 'V4' }
+      { voltage: V1, current: I1, label: 'V1' },
+      { voltage: V2, current: I1, label: 'V2' },
+      { voltage: V3, current: I2, label: 'V3' },
+      { voltage: V4, current: I2, label: 'V4' }
     ].filter(v => v.voltage !== null && v.voltage !== undefined);
     
     return voltages.map((v) => ({
       voltage: parseFloat(v.voltage.toFixed(4)),
-      current: parseFloat(current.toFixed(4)),
-      power: parseFloat((v.voltage * current).toFixed(6)), // ✅ Power = Voltage × (I/2)
+      current: parseFloat(v.current.toFixed(4)),
+      power: parseFloat((v.voltage * v.current).toFixed(6)),
       label: v.label
     })).sort((a, b) => a.voltage - b.voltage);
   };
 
   // Replace the generatePowerTimeline function
 
-  // Generate power production timeline - Calculate as Voltage × (I/2)
+  // Generate power production timeline - Calculate as Voltage × I
   const generatePowerTimeline = () => {
-    if (!panelData || !panelData.data) return [];
+    if (!panelData) return [];
     
-    const voltages = [
-      panelData.data.V1?.value || 0,
-      panelData.data.V2?.value || 0,
-      panelData.data.V3?.value || 0,
-      panelData.data.V4?.value || 0
-    ];
-    
-    const current = (panelData.data.I?.value || 0) / 2; // ✅ Divide by 2
+    const V1 = panelData.V1?.value || 0;
+    const V2 = panelData.V2?.value || 0;
+    const V3 = panelData.V3?.value || 0;
+    const V4 = panelData.V4?.value || 0;
+    const I1 = (panelData.I1?.value || 0) / 1000; // Convert mA to A
+    const I2 = (panelData.I2?.value || 0) / 1000; // Convert mA to A
     
     const labels = ['P1', 'P2', 'P3', 'P4'];
 
-    return labels.map((label, idx) => ({
-      name: label,
-      power: parseFloat((voltages[idx] * current).toFixed(4)), // ✅ Power = V × (I/2)
-      capacity: 0.5 // Max reasonable capacity for this range
-    }));
+    return [
+      { name: 'P1', power: parseFloat((V1 * I1).toFixed(4)), capacity: 0.5 },
+      { name: 'P2', power: parseFloat((V2 * I1).toFixed(4)), capacity: 0.5 },
+      { name: 'P3', power: parseFloat((V3 * I2).toFixed(4)), capacity: 0.5 },
+      { name: 'P4', power: parseFloat((V4 * I2).toFixed(4)), capacity: 0.5 }
+    ];
   };
 
   const summary = calculateSummary();
@@ -291,7 +290,7 @@ const SolarPanelGrid = () => {
     // Get sensor data based on panel ID
     const getPanelSensorData = () => {
       // Default values if no sensor data
-      if (!panelData || !panelData.data) {
+      if (!panelData) {
         return { 
           voltage: 0,
           power: 0,
@@ -302,30 +301,38 @@ const SolarPanelGrid = () => {
       try {
         // Map panel IDs to sensor keys
         let voltageKey;
+        let currentKey;
+        let powerKey;
         
         if (panel.id === 'SP-001') {
           voltageKey = 'V1';
+          currentKey = 'I1';
+          powerKey = 'P1';
         } else if (panel.id === 'SP-002') {
           voltageKey = 'V2';
+          currentKey = 'I1';
+          powerKey = 'P2';
         } else if (panel.id === 'SP-003') {
           voltageKey = 'V3';
+          currentKey = 'I2';
+          powerKey = 'P3';
         } else if (panel.id === 'SP-004') {
           voltageKey = 'V4';
+          currentKey = 'I2';
+          powerKey = 'P4';
         }
 
         // Get ACTUAL sensor values from AWS API for this specific panel
-        const voltage = panelData.data[voltageKey]?.value || 0;
-        const currentDivided = (panelData.data.I?.value || 0) / 2; // Current is shared, divide by 2
+        const voltage = panelData[voltageKey]?.value || 0;
+        const current = (panelData[currentKey]?.value || 0) / 1000; // Convert mA to A
+        const power = voltage * current; // Calculate power
         
-        // ✅ Calculate power as Voltage × (I/2)
-        const calculatedPower = voltage * currentDivided;
-        
-        console.log(`📊 ${panel.name} - V${panel.id.slice(-1)}: ${voltage}, Calculated Power: ${voltage} × ${currentDivided} = ${calculatedPower}, I/2: ${currentDivided}`);
+        console.log(`📊 ${panel.name} - ${voltageKey}: ${voltage}V, ${currentKey}: ${current}A, Power: ${power}W`);
 
         return { 
-          voltage: parseFloat(voltage.toFixed(4)),
-          power: parseFloat(calculatedPower.toFixed(4)), // ✅ Now using calculated power
-          current: parseFloat(currentDivided.toFixed(4))
+          voltage: parseFloat(voltage.toFixed(2)),
+          power: parseFloat(power.toFixed(3)),
+          current: parseFloat(current.toFixed(2))
         };
       } catch (err) {
         console.error(`Error parsing sensor data for ${panel.name}:`, err);

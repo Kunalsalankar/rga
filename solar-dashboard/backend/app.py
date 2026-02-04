@@ -18,7 +18,7 @@ app = Flask(__name__)
 CORS(app)
 
 # AWS API endpoint for sensor data
-AWS_API_ENDPOINT = "https://sacgn6gxpa.execute-api.us-east-1.amazonaws.com/latest"
+AWS_API_ENDPOINT = "https://j8ql0tblwb.execute-api.us-east-1.amazonaws.com/prod/values"
 ASSET_ID = "cd29fe97-2d5e-47b4-a951-04c9e29544ac"
 
 # Dummy panel data
@@ -106,11 +106,11 @@ def get_panel_readings():
     try:
         asset_id = request.args.get("assetId", ASSET_ID)
         
-        print(f"📡 Fetching sensor data for asset: {asset_id}")
+        print(f"📡 Fetching sensor data from AWS API: {AWS_API_ENDPOINT}")
         
-        # Fetch from AWS API
+        # Fetch from AWS API (no asset_id parameter needed for new endpoint)
         response = requests.get(
-            f"{AWS_API_ENDPOINT}?assetId={asset_id}",
+            AWS_API_ENDPOINT,
             timeout=5
         )
         response.raise_for_status()
@@ -119,6 +119,7 @@ def get_panel_readings():
         print(f"✅ Real sensor data received from AWS API")
         print(f"Data: {data}")
         
+        # Return the data directly (new format has no nested structure)
         return jsonify(data), 200
         
     except requests.exceptions.Timeout:
@@ -134,18 +135,16 @@ def get_panel_readings():
 def _get_dummy_sensor_data(asset_id):
     """Return dummy sensor data as fallback"""
     return {
-        "assetId": asset_id,
-        "data": {
-            "V1": {"value": 38.5, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "V2": {"value": 37.2, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "V3": {"value": 39.1, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "V4": {"value": 36.8, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "P1": {"value": 320, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "P2": {"value": 315, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "P3": {"value": 325, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "P4": {"value": 310, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}},
-            "I": {"value": 8.5, "timestamp": {"timeInSeconds": int(datetime.now().timestamp()), "offsetInNanos": 0}}
-        }
+        "I1": {"value": 272, "timestamp": 1768827220},
+        "I2": {"value": 386, "timestamp": 1768827220},
+        "P1": {"value": 1.84, "timestamp": 1768827220},
+        "P2": {"value": 1.84, "timestamp": 1768827220},
+        "P3": {"value": 2.72, "timestamp": 1768827220},
+        "P4": {"value": 2.72, "timestamp": 1768827220},
+        "V1": {"value": 6.46, "timestamp": 1768827220},
+        "V2": {"value": 7.07, "timestamp": 1768827220},
+        "V3": {"value": 7.35, "timestamp": 1768827220},
+        "V4": {"value": 6.75, "timestamp": 1768827220}
     }
 
 @app.route("/api/camera/feed", methods=["GET"])
