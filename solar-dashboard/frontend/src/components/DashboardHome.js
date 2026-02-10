@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -33,39 +33,129 @@ import {
 
 const DashboardHome = () => {
   const [timeRange, setTimeRange] = useState('Last 7 Days');
+  const [readingsData, setReadingsData] = useState(null);
+  const [readingsError, setReadingsError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [powerSeries, setPowerSeries] = useState([]);
+
+  const pickReadingValue = (obj, key) => {
+    const raw = obj?.[key];
+    if (raw && typeof raw === 'object' && 'value' in raw) return raw.value;
+    return raw;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchReadings = async () => {
+      try {
+        const res = await fetch('/api/panel/readings', { method: 'GET' });
+        if (!res.ok) throw new Error(`Readings request failed: ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+
+        setReadingsData(data);
+        setReadingsError(null);
+        const ts = new Date();
+        setLastUpdated(ts);
+
+        const p1 = Number(pickReadingValue(data, 'P1') ?? data?.power?.P1 ?? 0);
+        const p2 = Number(pickReadingValue(data, 'P2') ?? data?.power?.P2 ?? 0);
+        const p3 = Number(pickReadingValue(data, 'P3') ?? data?.power?.P3 ?? 0);
+        const totalW = p1 + p2 + p3;
+
+        setPowerSeries((prev) => {
+          const next = [...prev, { time: ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), mw: Number((totalW / 1000).toFixed(3)) }];
+          return next.length > 24 ? next.slice(next.length - 24) : next;
+        });
+      } catch (e) {
+        if (cancelled) return;
+        setReadingsData(null);
+        setReadingsError(e?.message || 'Failed to fetch sensor readings');
+      }
+    };
+
+    fetchReadings();
+    const id = setInterval(fetchReadings, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   const kpis = useMemo(
-    () => [
-      { label: 'Total Panels', value: '1,240', icon: <GridView />, color: '#2563eb' },
-      { label: 'Active', value: '1,192', icon: <Bolt />, color: '#22c55e' },
-      { label: 'Warning', value: '36', icon: <WarningAmber />, color: '#f59e0b' },
-      { label: 'Critical', value: '12', icon: <ErrorOutline />, color: '#ef4444' },
-      { label: 'Total Power', value: '4.2 MW', icon: <Bolt />, color: '#16a34a' },
-      { label: 'Avg Efficiency', value: '94.2%', icon: <Bolt />, color: '#6366f1' }
-    ],
-    []
-  );
+    () => {
+      const classify = (p) => {
+        const ap = Math.abs(Number(p) || 0);
+        if (ap >= 5) return 'healthy';
+        if (ap >= 1) return 'warning';
+        return 'critical';
+      };
 
-  const powerSeries = useMemo(
-    () => [
-      { time: '06:00', mw: 0.9 },
-      { time: '09:00', mw: 2.8 },
-      { time: '12:00', mw: 1.9 },
-      { time: '15:00', mw: 2.4 },
-      { time: '18:00', mw: 3.2 },
-      { time: '21:00', mw: 2.7 }
-    ],
-    []
+      const powerKeys = ['P1', 'P2', 'P3'];
+      const totalPanels = powerKeys.filter((k) => pickReadingValue(readingsData, k) != null || readingsData?.power?.[k] != null).length || powerKeys.length;
+
+      const p1 = Number(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
+      const p2 = Number(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
+      const p3 = Number(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
+      const classes = [classify(p1), classify(p2), classify(p3)];
+
+      const healthy = classes.filter((c) => c === 'healthy').length;
+      const warning = classes.filter((c) => c === 'warning').length;
+      const critical = classes.filter((c) => c === 'critical').length;
+
+      const totalW = p1 + p2 + p3;
+      const totalKw = totalW / 1000;
+      const efficiency = ((healthy / Math.max(1, totalPanels)) * 100).toFixed(0);
+
+      return [
+        { label: 'Total Panels', value: String(totalPanels), icon: <GridView />, color: '#2563eb' },
+        { label: 'Active', value: String(healthy), icon: <Bolt />, color: '#22c55e' },
+        { label: 'Warning', value: String(warning), icon: <WarningAmber />, color: '#f59e0b' },
+        { label: 'Critical', value: String(critical), icon: <ErrorOutline />, color: '#ef4444' },
+        { label: 'Total Power', value: `${totalKw.toFixed(3)} kW`, icon: <Bolt />, color: '#16a34a' },
+        { label: 'Avg Efficiency', value: `${efficiency}%`, icon: <Bolt />, color: '#6366f1' }
+      ];
+    },
+    [readingsData]
   );
 
   const healthDist = useMemo(
-    () => [
-      { name: 'Healthy', value: 95, color: '#22c55e' },
-      { name: 'Warning', value: 3, color: '#f59e0b' },
-      { name: 'Critical', value: 2, color: '#ef4444' }
-    ],
-    []
+    () => {
+      const classify = (p) => {
+        const ap = Math.abs(Number(p) || 0);
+        if (ap >= 5) return 'healthy';
+        if (ap >= 1) return 'warning';
+        return 'critical';
+      };
+
+      const powerKeys = ['P1', 'P2', 'P3'];
+      const totalPanels = powerKeys.filter((k) => pickReadingValue(readingsData, k) != null || readingsData?.power?.[k] != null).length || powerKeys.length;
+
+      const p1 = Number(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
+      const p2 = Number(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
+      const p3 = Number(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
+      const classes = [classify(p1), classify(p2), classify(p3)];
+
+      const healthy = classes.filter((c) => c === 'healthy').length;
+      const warning = classes.filter((c) => c === 'warning').length;
+      const critical = classes.filter((c) => c === 'critical').length;
+
+      const total = Math.max(1, totalPanels);
+
+      return [
+        { name: 'Healthy', value: Math.round((healthy / total) * 100), color: '#22c55e' },
+        { name: 'Warning', value: Math.round((warning / total) * 100), color: '#f59e0b' },
+        { name: 'Critical', value: Math.round((critical / total) * 100), color: '#ef4444' }
+      ];
+    },
+    [readingsData]
   );
+
+  const totalPanels = useMemo(() => {
+    const powerKeys = ['P1', 'P2', 'P3'];
+    return powerKeys.filter((k) => pickReadingValue(readingsData, k) != null || readingsData?.power?.[k] != null).length || powerKeys.length;
+  }, [readingsData]);
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -75,8 +165,13 @@ const DashboardHome = () => {
             GreenEnergy Park A
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Last updated: Today, 12:45 PM
+            Last updated: {lastUpdated ? lastUpdated.toLocaleString() : '—'}
           </Typography>
+          {readingsError && (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+              {readingsError}
+            </Typography>
+          )}
         </Box>
 
         <Stack direction="row" spacing={1.25} alignItems="center">
@@ -220,7 +315,7 @@ const DashboardHome = () => {
                 }}
               >
                 <Typography variant="h5" fontWeight={900}>
-                  1,240
+                  {totalPanels}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   TOTAL ASSETS

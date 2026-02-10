@@ -4,7 +4,6 @@ import {
   Paper,
   Typography,
   Box,
-  Button,
   Grid,
   Card,
   CardContent,
@@ -14,7 +13,7 @@ import {
   Chip,
   Divider,
 } from '@mui/material';
-import { ArrowBack, Visibility, Build, Analytics } from '@mui/icons-material';
+import { ArrowBack, Visibility } from '@mui/icons-material';
 import axios from 'axios';
 
 const DigitalTwin = ({ onBack, panelInfo }) => {

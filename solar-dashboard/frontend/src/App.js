@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import {
   Bolt,
+  Build,
   Dashboard as DashboardIcon,
   ErrorOutline,
   Insights,
@@ -34,6 +35,8 @@ import SolarPanelGrid from './components/SolarPanelGrid';
 import DigitalTwin from './components/DigitalTwin';
 import DashboardHome from './components/DashboardHome';
 import HistoricalAnalysis from './components/HistoricalAnalysis';
+import HealthReport from './components/HealthReport';
+import ScheduleMaintenance from './components/ScheduleMaintenance';
 import axios from 'axios';
 
 const theme = createTheme({
@@ -71,6 +74,7 @@ function App() {
   const [showDigitalTwin, setShowDigitalTwin] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
   const [selectedPanel, setSelectedPanel] = useState(null);
+  const [lastAutoNavTs, setLastAutoNavTs] = useState(0);
 
   useEffect(() => {
     // Fetch initial panel info
@@ -84,10 +88,37 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const maybeAutoNavigate = async () => {
+      try {
+        const res = await fetch('/api/panel/readings', { method: 'GET' });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const p1 = Number(data?.P1?.value || 0);
+        const threshold = 4;
+        if (!(p1 > threshold)) return;
+
+        const now = Date.now();
+        const cooldownMs = 15000;
+        if (now - lastAutoNavTs < cooldownMs) return;
+
+        setSelectedPanel({ id: 'SP-001' });
+        setActivePage('health-report');
+        setLastAutoNavTs(now);
+      } catch {
+        // ignore
+      }
+    };
+
+    const id = setInterval(maybeAutoNavigate, 3000);
+    return () => clearInterval(id);
+  }, [lastAutoNavTs]);
+
   const fetchPanelInfo = async () => {
     try {
       const response = await axios.get(
-        `http://localhost:5000/api/panel/info?panelId=SP-001`,  // ✅ Use port 5000
+        `/api/panel/info?panelId=SP-001`,
         { timeout: 5000 }
       );
       setPanelInfo(response.data);
@@ -103,13 +134,25 @@ function App() {
     { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
     { id: 'live', label: 'Live Data', icon: <ShowChart /> },
     { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
-    { id: 'faults', label: 'Faults', icon: <ErrorOutline /> },
+    { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
+    { id: 'maintenance', label: 'Maintenance', icon: <Build /> },
     { id: 'settings', label: 'Settings', icon: <Settings /> }
   ];
 
   const handlePanelSelect = (panel) => {
     setSelectedPanel(panel);
     setActivePage('historical');
+  };
+
+  const handleOpenHealthReport = (panel) => {
+    setSelectedPanel(panel);
+    setActivePage('health-report');
+  };
+
+  const handleOpenScheduleMaintenance = (panelOrId = null) => {
+    const panel = typeof panelOrId === 'string' ? { id: panelOrId } : panelOrId;
+    setSelectedPanel(panel);
+    setActivePage('maintenance');
   };
 
   return (
@@ -262,10 +305,17 @@ function App() {
                 ) : activePage === 'dashboard' ? (
                   <>
                     <DashboardHome />
-                    <SolarPanelGrid onPanelSelect={handlePanelSelect} />
+                    <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
                   </>
+                ) : activePage === 'health-report' ? (
+                  <HealthReport
+                    panelId={selectedPanel?.id || null}
+                    onScheduleMaintenanceOpen={handleOpenScheduleMaintenance}
+                  />
+                ) : activePage === 'maintenance' ? (
+                  <ScheduleMaintenance panelId={selectedPanel?.id || null} />
                 ) : (
-                  <SolarPanelGrid onPanelSelect={handlePanelSelect} />
+                  <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
                 )}
               </Box>
             </Box>

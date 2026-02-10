@@ -21,6 +21,13 @@ CORS(app)
 AWS_API_ENDPOINT = "https://j8ql0tblwb.execute-api.us-east-1.amazonaws.com/prod/values"
 ASSET_ID = "cd29fe97-2d5e-47b4-a951-04c9e29544ac"
 
+# FastAPI (YOLOv8 + RAG + Gemini) backend base URL
+FASTAPI_BACKEND_URL = os.getenv("FASTAPI_BACKEND_URL", "http://localhost:8000")
+
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+WARDHA_LAT = 20.7453
+WARDHA_LON = 78.6022
+
 # Dummy panel data
 DUMMY_PANELS = [
     {
@@ -72,6 +79,48 @@ def index():
 def health():
     """Health check endpoint"""
     return jsonify({"status": "ok", "service": "solar-dashboard-backend"}), 200
+
+
+@app.route("/api/weather/wardha", methods=["GET"])
+def get_weather_wardha():
+    """Fetch live weather for Wardha using OpenWeather."""
+    api_key = OPENWEATHER_API_KEY or request.args.get("appid") or ""
+    if not api_key:
+        return jsonify({"error": "Missing OPENWEATHER_API_KEY"}), 500
+
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    try:
+        resp = requests.get(
+            url,
+            params={"lat": WARDHA_LAT, "lon": WARDHA_LON, "appid": api_key, "units": "metric"},
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            return jsonify({"error": "OpenWeather returned error", "status": resp.status_code, "body": resp.text}), resp.status_code
+        data = resp.json()
+
+        main = data.get("main") or {}
+        weather0 = (data.get("weather") or [{}])[0] or {}
+        wind = data.get("wind") or {}
+
+        return (
+            jsonify(
+                {
+                    "city": "Wardha",
+                    "temperature_c": main.get("temp"),
+                    "humidity_percent": main.get("humidity"),
+                    "pressure_hpa": main.get("pressure"),
+                    "condition": weather0.get("main") or weather0.get("description"),
+                    "wind_mps": wind.get("speed"),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ),
+            200,
+        )
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "OpenWeather timeout"}), 504
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch weather", "message": str(e)}), 502
 
 @app.route("/api/panels/all", methods=["GET"])
 def get_all_panels():
@@ -132,6 +181,74 @@ def get_panel_readings():
         dummy_sensor_data = _get_dummy_sensor_data(asset_id)
         return jsonify(dummy_sensor_data), 200
 
+
+@app.route("/api/panel/health-report", methods=["GET"])
+def get_panel_health_report():
+    """Generate/Fetch health report from FastAPI (YOLOv8 + RAG + Gemini) backend."""
+    panel_id = request.args.get("panel_id") or request.args.get("panelId") or "SP-001"
+
+    try:
+        url = f"{FASTAPI_BACKEND_URL.rstrip('/')}/api/panel/auto-analyze"
+        print(f"🤖 Proxying health report request to FastAPI: {url} (panel_id={panel_id})")
+
+        resp = requests.post(url, params={"panel_id": panel_id}, timeout=120)
+        if resp.status_code >= 400:
+            print(f"❌ FastAPI responded with {resp.status_code}: {resp.text[:500]}")
+            return (
+                jsonify(
+                    {
+                        "error": "FastAPI returned error",
+                        "fastapi_status": resp.status_code,
+                        "fastapi_body": resp.text,
+                    }
+                ),
+                resp.status_code,
+            )
+
+        try:
+            return jsonify(resp.json()), 200
+        except Exception:
+            return (
+                jsonify(
+                    {
+                        "error": "FastAPI response was not valid JSON",
+                        "fastapi_status": resp.status_code,
+                        "fastapi_body": resp.text,
+                    }
+                ),
+                502,
+            )
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "FastAPI health report timeout"}), 504
+    except requests.exceptions.ConnectionError as e:
+        print(f"❌ Cannot connect to FastAPI at {FASTAPI_BACKEND_URL}: {e}")
+        return (
+            jsonify(
+                {
+                    "error": "Cannot connect to FastAPI backend",
+                    "fastapi_base_url": FASTAPI_BACKEND_URL,
+                    "message": str(e),
+                }
+            ),
+            502,
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching health report from FastAPI: {e}")
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        body = getattr(getattr(e, "response", None), "text", None)
+        return (
+            jsonify(
+                {
+                    "error": "Failed to fetch health report from FastAPI",
+                    "fastapi_base_url": FASTAPI_BACKEND_URL,
+                    "fastapi_status": status,
+                    "fastapi_body": body,
+                    "message": str(e),
+                }
+            ),
+            502,
+        )
+
 def _get_dummy_sensor_data(asset_id):
     """Return dummy sensor data as fallback"""
     return {
@@ -150,6 +267,17 @@ def _get_dummy_sensor_data(asset_id):
 @app.route("/api/camera/feed", methods=["GET"])
 def get_camera_feed():
     """Proxy endpoint to fetch camera feed from ESP32 camera"""
+    fallback_path = os.path.join(os.path.dirname(__file__), "image.png")
+
+    def _fallback_image_response():
+        try:
+            if os.path.exists(fallback_path):
+                with open(fallback_path, "rb") as f:
+                    return Response(f.read(), mimetype="image/png")
+        except Exception as e:
+            print(f"❌ Error reading fallback image: {e}")
+        return jsonify({"error": "Camera feed unavailable and fallback image missing"}), 503
+
     try:
         camera_url = request.args.get("url")
         
@@ -167,15 +295,15 @@ def get_camera_feed():
         
     except requests.exceptions.Timeout:
         print(f"⏱️ Camera request timeout")
-        return jsonify({"error": "Camera request timeout"}), 504
+        return _fallback_image_response()
         
     except requests.exceptions.ConnectionError:
         print(f"❌ Cannot connect to camera at {camera_url}")
-        return jsonify({"error": f"Cannot connect to camera. Make sure it's online at {camera_url}"}), 503
+        return _fallback_image_response()
         
     except Exception as e:
         print(f"❌ Error fetching camera feed: {e}")
-        return jsonify({"error": "Failed to fetch camera feed", "message": str(e)}), 500
+        return _fallback_image_response()
 
 if __name__ == "__main__":
     print("🚀 Starting Solar Dashboard Backend...")

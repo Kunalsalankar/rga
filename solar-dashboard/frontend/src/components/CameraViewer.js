@@ -16,7 +16,7 @@ import {
   Chip,
   LinearProgress
 } from '@mui/material';
-import { Close, Refresh, Download, CloudUpload } from '@mui/icons-material';
+import { Close, Download, CloudUpload } from '@mui/icons-material';
 
 const CameraViewer = ({ open, onClose, panelId, cameraUrl = 'http://10.70.187.244/capture', onAnalysisComplete = null }) => {
   const [loading, setLoading] = useState(false);
@@ -212,7 +212,7 @@ const CameraViewer = ({ open, onClose, panelId, cameraUrl = 'http://10.70.187.24
       const trimmed = line.trim();
       
       // Skip empty lines and table separators
-      if (!trimmed || trimmed === '|' || /^[\|\-]+$/.test(trimmed) || trimmed.startsWith('|-|')) {
+      if (!trimmed || trimmed === '|' || /^[|-]+$/.test(trimmed) || trimmed.startsWith('|-|')) {
         return;
       }
       

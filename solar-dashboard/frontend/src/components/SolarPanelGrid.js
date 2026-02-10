@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Grid, Paper, Typography, Box, CircularProgress, Alert, Button, Dialog, DialogTitle, DialogContent, DialogActions, Tabs, Tab } from '@mui/material';
 import { Bolt, ErrorOutline, CheckCircle, Videocam, TrendingUp, Close } from '@mui/icons-material';
-import axios from 'axios';
 import CameraViewer from './CameraViewer';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const SolarPanelGrid = ({ onPanelSelect }) => {
-  const [panels, setPanels] = useState([]);
+const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -17,134 +15,47 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
   const [dataLoading, setDataLoading] = useState(false);
   const [tabValue, setTabValue] = useState(0);
 
-  const ASSET_ID = 'cd29fe97-2d5e-47b4-a951-04c9e29544ac';
-  const BACKEND_URL = 'http://localhost:5000'; // ✅ Backend on port 5000
+  const VALUES_ENDPOINT = '/api/panel/readings';
 
-  const DUMMY_PANELS = [
-    {
-      id: 'SP-001',
-      name: 'Solar Panel 1',
-      location: 'Roof A',
-      capacity: 400,
-      current_output: 320,
-      health_score: 96,
-      last_update: new Date().toISOString()
-    },
-    {
-      id: 'SP-002',
-      name: 'Solar Panel 2',
-      location: 'Roof B',
-      capacity: 400,
-      current_output: 380,
-      health_score: 98,
-      last_update: new Date().toISOString()
-    },
-    {
-      id: 'SP-003',
-      name: 'Solar Panel 3',
-      location: 'Roof C',
-      capacity: 400,
-      current_output: 290,
-      health_score: 95,
-      last_update: new Date().toISOString()
-    },
-    {
-      id: 'SP-004',
-      name: 'Solar Panel 4',
-      location: 'Roof D',
-      capacity: 400,
-      current_output: 150,
-      health_score: 78,
-      last_update: new Date().toISOString()
-    }
-  ];
+  const panels = useMemo(
+    () => [
+      { id: 'SP-001', name: 'Solar Panel 1', location: 'Panel 1' },
+      { id: 'SP-002', name: 'Solar Panel 2', location: 'Panel 2' },
+      { id: 'SP-003', name: 'Solar Panel 3', location: 'Panel 3' }
+    ],
+    []
+  );
 
-  const DUMMY_SENSOR_DATA = {
-    I1: { value: 272, timestamp: 1768827220 },
-    I2: { value: 386, timestamp: 1768827220 },
-    P1: { value: 1.84, timestamp: 1768827220 },
-    P2: { value: 1.84, timestamp: 1768827220 },
-    P3: { value: 2.72, timestamp: 1768827220 },
-    P4: { value: 2.72, timestamp: 1768827220 },
-    V1: { value: 6.46, timestamp: 1768827220 },
-    V2: { value: 7.07, timestamp: 1768827220 },
-    V3: { value: 7.35, timestamp: 1768827220 },
-    V4: { value: 6.75, timestamp: 1768827220 }
-  };
+  const SENSOR_MAP = useMemo(
+    () => ({
+      'SP-001': { voltageKey: 'V1', powerKey: 'P1', currentKey: 'I' },
+      'SP-002': { voltageKey: 'V2', powerKey: 'P1', currentKey: 'I' },
+      'SP-003': { voltageKey: 'V3', powerKey: 'P3', currentKey: 'I' }
+    }),
+    []
+  );
 
-  // Fetch panels from backend
-  const fetchPanels = useCallback(async () => {
-    try {
-      setLoading(true);
-      console.log('📡 Fetching panels from backend...');
-      
-      const response = await axios.get(`${BACKEND_URL}/api/panels/all`, { timeout: 5000 });
-      
-      if (response.data && Array.isArray(response.data)) {
-        console.log('✅ Panels fetched successfully:', response.data);
-        setPanels(response.data);
-        setError(null);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching panels:', err.message);
-      setPanels(DUMMY_PANELS);
-      setError('Using simulated panel data');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Fetch real-time sensor data from backend with longer timeout
   const fetchPanelData = useCallback(async () => {
     try {
-      console.log('📡 Fetching sensor data from backend...');
-      
-      // ✅ Call Flask backend which proxies AWS API - increased timeout to 10s
-      const response = await axios.get(
-        `${BACKEND_URL}/api/panel/readings?assetId=${ASSET_ID}`,
-        { timeout: 10000 } // Increased from 5000ms
-      );
-      
-      // New API format returns data directly, not nested
-      if (response.data) {
-        console.log('✅ Real sensor data received:', response.data);
-        setPanelData(response.data);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching sensor data:', err.message);
-      console.log('📊 Using dummy sensor data as fallback');
-      setPanelData(DUMMY_SENSOR_DATA);
+      setError(null);
+      const res = await fetch(VALUES_ENDPOINT, { method: 'GET' });
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const data = await res.json();
+      setPanelData(data);
+    } catch (e) {
+      setPanelData(null);
+      setError(e?.message || 'Failed to fetch live panel values');
     } finally {
+      setLoading(false);
       setDataLoading(false);
     }
-  }, [ASSET_ID, BACKEND_URL]);
+  }, [VALUES_ENDPOINT]);
 
   useEffect(() => {
-    fetchPanels();
-    fetchPanelData(); // ✅ Fetch sensor data on component mount ONCE
-    
-    // DISABLED: Auto-refresh was causing CameraViewer state to reset
-    // Only refresh when user explicitly requests or on manual intervals
-    // const panelInterval = setInterval(fetchPanels, 15000);
-    // const sensorInterval = setInterval(fetchPanelData, 15000);
-    
-    // return () => {
-    //   clearInterval(panelInterval);
-    //   clearInterval(sensorInterval);
-    // };
-  }, []); // ✅ EMPTY DEPENDENCY ARRAY - only run once on mount
-
-  const getHealthColor = (score) => {
-    if (score >= 85) return '#4caf50';
-    if (score >= 70) return '#ff9800';
-    return '#f44336';
-  };
-
-  const getHealthStatus = (score) => {
-    if (score >= 85) return 'Excellent';
-    if (score >= 70) return 'Good';
-    return 'Poor';
-  };
+    fetchPanelData();
+    const id = setInterval(fetchPanelData, 5000);
+    return () => clearInterval(id);
+  }, [fetchPanelData]);
 
   const handleOpenCamera = (panelId) => {
     setSelectedPanelId(panelId);
@@ -160,7 +71,7 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
     setSelectedPanel(panel);
     setDetailsOpen(true);
     setDataLoading(true); // ✅ Show loading state
-    fetchPanelData(); // Fetch fresh data when opening
+    fetchPanelData();
   };
 
   const handleCloseDetails = () => {
@@ -171,68 +82,62 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
   };
 
   const calculateSummary = () => {
-    if (panels.length === 0) return { totalOutput: 0, healthyCount: 0, unhealthyCount: 0, averageHealth: 0, totalCapacity: 0 };
-    
-    const totalOutput = panels.reduce((sum, p) => sum + (p.current_output || 0), 0);
-    const totalCapacity = panels.reduce((sum, p) => sum + (p.capacity || 0), 0);
-    const healthyCount = panels.filter(p => p.health_score >= 85).length;
-    const unhealthyCount = panels.filter(p => p.health_score < 70).length;
-    const averageHealth = (panels.reduce((sum, p) => sum + (p.health_score || 0), 0) / panels.length).toFixed(1);
-    
-    return { totalOutput, totalCapacity, healthyCount, unhealthyCount, averageHealth };
+    const p1 = Number(panelData?.P1?.value || 0);
+    const p3 = Number(panelData?.P3?.value || 0);
+    const totalOutput = p1 + p1 + p3;
+
+    const classify = (p) => {
+      const ap = Math.abs(Number(p) || 0);
+      if (ap >= 5) return 'healthy';
+      if (ap >= 1) return 'warning';
+      return 'critical';
+    };
+    const classes = [classify(p1), classify(p1), classify(p3)];
+    const healthyCount = classes.filter((c) => c === 'healthy').length;
+    const unhealthyCount = classes.filter((c) => c === 'critical').length;
+    const averageHealth = ((healthyCount / 3) * 100).toFixed(0);
+
+    return { totalOutput, totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
   };
 
-  // Generate IV Curve data - ACTUAL AWS VALUES with I1/I2
+  // Generate IV Curve data - Live values (V1/V2/V3 and I in mA)
   const generateIVCurveData = () => {
     if (!panelData) return [];
-    
-    const V1 = panelData.V1?.value || 0;
-    const V2 = panelData.V2?.value || 0;
-    const V3 = panelData.V3?.value || 0;
-    const V4 = panelData.V4?.value || 0;
-    const I1 = (panelData.I1?.value || 0) / 1000; // Convert mA to A
-    const I2 = (panelData.I2?.value || 0) / 1000; // Convert mA to A
 
-    const voltages = [
-      { voltage: V1, current: I1, label: 'V1' },
-      { voltage: V2, current: I1, label: 'V2' },
-      { voltage: V3, current: I2, label: 'V3' },
-      { voltage: V4, current: I2, label: 'V4' }
-    ].filter(v => v.voltage !== null && v.voltage !== undefined);
-    
-    return voltages.map((v) => ({
-      voltage: parseFloat(v.voltage.toFixed(4)),
-      current: parseFloat(v.current.toFixed(4)),
-      power: parseFloat((v.voltage * v.current).toFixed(6)),
-      label: v.label
-    })).sort((a, b) => a.voltage - b.voltage);
+    const I = Number(panelData?.I?.value || 0); // mA
+    const points = [
+      { voltage: Number(panelData?.V1?.value || 0), current: I, label: 'V1' },
+      { voltage: Number(panelData?.V2?.value || 0), current: I, label: 'V2' },
+      { voltage: Number(panelData?.V3?.value || 0), current: I, label: 'V3' }
+    ];
+
+    return points
+      .filter((p) => Number.isFinite(p.voltage))
+      .map((p) => ({
+        voltage: Number(p.voltage.toFixed(4)),
+        current: Number(p.current.toFixed(0)),
+        label: p.label
+      }))
+      .sort((a, b) => a.voltage - b.voltage);
   };
 
   // Replace the generatePowerTimeline function
 
-  // Generate power production timeline - Calculate as Voltage × I
+  // Generate power production timeline - Use P1/P2/P3 directly (W)
   const generatePowerTimeline = () => {
     if (!panelData) return [];
-    
-    const V1 = panelData.V1?.value || 0;
-    const V2 = panelData.V2?.value || 0;
-    const V3 = panelData.V3?.value || 0;
-    const V4 = panelData.V4?.value || 0;
-    const I1 = (panelData.I1?.value || 0) / 1000; // Convert mA to A
-    const I2 = (panelData.I2?.value || 0) / 1000; // Convert mA to A
-    
-    const labels = ['P1', 'P2', 'P3', 'P4'];
 
     return [
-      { name: 'P1', power: parseFloat((V1 * I1).toFixed(4)), capacity: 0.5 },
-      { name: 'P2', power: parseFloat((V2 * I1).toFixed(4)), capacity: 0.5 },
-      { name: 'P3', power: parseFloat((V3 * I2).toFixed(4)), capacity: 0.5 },
-      { name: 'P4', power: parseFloat((V4 * I2).toFixed(4)), capacity: 0.5 }
-    ];
+      { name: 'Panel 1', power: Number(panelData?.P1?.value || 0) },
+      { name: 'Panel 2', power: Number(panelData?.P1?.value || 0) },
+      { name: 'Panel 3', power: Number(panelData?.P3?.value || 0) }
+    ].map((p) => ({ ...p, power: Number(p.power.toFixed(4)) }));
   };
 
   const summary = calculateSummary();
-  const efficiency = summary.totalCapacity > 0 ? ((summary.totalOutput / summary.totalCapacity) * 100).toFixed(1) : 0;
+  const efficiency = summary.totalCapacity && summary.totalCapacity !== '—'
+    ? ((summary.totalOutput / summary.totalCapacity) * 100).toFixed(1)
+    : summary.averageHealth;
 
   const SummaryCard = ({ icon, title, value, unit, color, subtitle }) => (
     <Paper
@@ -299,40 +204,15 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
       }
 
       try {
-        // Map panel IDs to sensor keys
-        let voltageKey;
-        let currentKey;
-        let powerKey;
-        
-        if (panel.id === 'SP-001') {
-          voltageKey = 'V1';
-          currentKey = 'I1';
-          powerKey = 'P1';
-        } else if (panel.id === 'SP-002') {
-          voltageKey = 'V2';
-          currentKey = 'I1';
-          powerKey = 'P2';
-        } else if (panel.id === 'SP-003') {
-          voltageKey = 'V3';
-          currentKey = 'I2';
-          powerKey = 'P3';
-        } else if (panel.id === 'SP-004') {
-          voltageKey = 'V4';
-          currentKey = 'I2';
-          powerKey = 'P4';
-        }
-
-        // Get ACTUAL sensor values from AWS API for this specific panel
-        const voltage = panelData[voltageKey]?.value || 0;
-        const current = (panelData[currentKey]?.value || 0) / 1000; // Convert mA to A
-        const power = voltage * current; // Calculate power
-        
-        console.log(`📊 ${panel.name} - ${voltageKey}: ${voltage}V, ${currentKey}: ${current}A, Power: ${power}W`);
+        const map = SENSOR_MAP[panel.id];
+        const voltage = Number(panelData?.[map.voltageKey]?.value || 0);
+        const current = Number(panelData?.[map.currentKey]?.value || 0); // mA
+        const power = Number(panelData?.[map.powerKey]?.value || 0); // W
 
         return { 
-          voltage: parseFloat(voltage.toFixed(2)),
-          power: parseFloat(power.toFixed(3)),
-          current: parseFloat(current.toFixed(2))
+          voltage: Number(voltage.toFixed(4)),
+          power: Number(power.toFixed(4)),
+          current: Number(current.toFixed(0))
         };
       } catch (err) {
         console.error(`Error parsing sensor data for ${panel.name}:`, err);
@@ -341,18 +221,6 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
     };
 
     const sensorData = getPanelSensorData();
-
-    // Determine voltage key for display
-    const getVoltageLabel = () => {
-      const panelNum = panel.id.slice(-1); // Get '1', '2', '3', '4'
-      return `V${panelNum}`;
-    };
-
-    // Determine power key for display
-    const getPowerLabel = () => {
-      const panelNum = panel.id.slice(-1); // Get '1', '2', '3', '4'
-      return `P${panelNum}`;
-    };
 
     return (
       <Paper
@@ -385,9 +253,9 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
               {panel.location}
             </Typography>
           </Box>
-          {panel.health_score >= 85 ? (
+          {Math.abs(sensorData.power) >= 5 ? (
             <CheckCircle sx={{ color: '#4caf50', fontSize: 24 }} />
-          ) : panel.health_score >= 70 ? (
+          ) : Math.abs(sensorData.power) >= 1 ? (
             <CheckCircle sx={{ color: '#ff9800', fontSize: 24 }} />
           ) : (
             <ErrorOutline sx={{ color: '#f44336', fontSize: 24 }} />
@@ -437,7 +305,7 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
                 color="#4caf50"
                 sx={{ fontSize: '1rem' }}
               >
-                {sensorData.current.toFixed(4)}A
+                {sensorData.current.toFixed(0)} mA
               </Typography>
               <Typography variant="caption" color="textSecondary" sx={{ display: 'block', textAlign: 'right' }}>
               </Typography>
@@ -456,6 +324,21 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
         >
           View Details
         </Button>
+
+        {onHealthReportOpen && (
+          <Button
+            fullWidth
+            variant="outlined"
+            color="success"
+            onClick={(e) => {
+              e.stopPropagation();
+              onHealthReportOpen(panel);
+            }}
+            sx={{ mt: 1.25 }}
+          >
+            Health Report
+          </Button>
+        )}
 
         <Button
           fullWidth
@@ -498,7 +381,7 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
               value={summary.totalOutput}
               unit="W"
               color="#ff9800"
-              subtitle={`of ${summary.totalCapacity}W capacity`}
+              subtitle={summary.totalCapacity ? `of ${summary.totalCapacity}W capacity` : null}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -545,7 +428,7 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
 
         <Grid container spacing={2}>
           {panels.map((panel) => (
-            <Grid item xs={12} sm={6} md={6} lg={3} key={panel.id}>
+            <Grid item xs={12} sm={6} md={4} lg={4} key={panel.id}>
               <PanelCard panel={panel} panelData={panelData} />
             </Grid>
           ))}
@@ -576,13 +459,19 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
             </Box>
           ) : (
             <>
-              <Alert severity={panelData === DUMMY_SENSOR_DATA ? "warning" : "success"} sx={{ mb: 2 }}>
-                {panelData === DUMMY_SENSOR_DATA ? '📊 Showing sample data (API unavailable)' : '✅ Live data from AWS sensors - Last updated: ' + new Date(panelData?.data?.V1?.timestamp?.timeInSeconds * 1000).toLocaleTimeString()}
-              </Alert>
+              {error ? (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              ) : (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  ✅ Live data from AWS sensors
+                </Alert>
+              )}
 
               <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} sx={{ mb: 2, borderBottom: '1px solid #e0e0e0' }}>
                 <Tab label="IV Curve" />
-                <Tab label="Power Production" />
+                <Tab label="Power" />
                 <Tab label="Sensor Data" />
               </Tabs>
 
@@ -593,37 +482,37 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
                     Current vs Voltage Curve
                   </Typography>
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    Current shown in amps (A).
+                    Current shown in milliampere (mA).
                   </Typography>
                   {generateIVCurveData().length > 0 ? (
                     <ResponsiveContainer width="100%" height={400}>
                       <LineChart data={generateIVCurveData()} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                         <defs>
                           <linearGradient id="colorCurrent" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#ff9800" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#ff9800" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#ff9800" stopOpacity={0.8} />
+                            <stop offset="95%" stopColor="#ff9800" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="voltage" 
+                        <XAxis
+                          dataKey="voltage"
                           label={{ value: 'Voltage (V)', position: 'insideBottomRight', offset: -5 }}
                           stroke="#666"
                         />
-                        <YAxis 
-                          label={{ value: 'Current (A)', angle: -90, position: 'insideLeft' }}
+                        <YAxis
+                          label={{ value: 'Current (mA)', angle: -90, position: 'insideLeft' }}
                           stroke="#666"
                         />
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{ backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: 8 }}
-                          formatter={(value) => value.toFixed(4)}
+                          formatter={(value) => `${Number(value).toFixed(0)} mA`}
                           labelFormatter={(label) => `Voltage: ${label}V`}
                         />
                         <Legend />
-                        <Line 
-                          type="monotone" 
-                          dataKey="current" 
-                          stroke="#ff9800" 
+                        <Line
+                          type="monotone"
+                          dataKey="current"
+                          stroke="#ff9800"
                           strokeWidth={3}
                           dot={{ fill: '#ff9800', r: 6 }}
                           activeDot={{ r: 8 }}
@@ -637,38 +526,27 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
                 </Box>
               )}
 
-              {/* Power Production Tab */}
+              {/* Power Tab */}
               {tabValue === 1 && (
                 <Box sx={{ py: 2 }}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">
-                    Power Production (V × I)
+                    Power (W)
                   </Typography>
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    Calculated as: Voltage × Current
+                    Using sensor power readings P1 and P3.
                   </Typography>
                   {generatePowerTimeline().length > 0 ? (
                     <ResponsiveContainer width="100%" height={400}>
                       <BarChart data={generatePowerTimeline()} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="name"
-                          stroke="#666"
-                        />
-                        <YAxis 
-                          label={{ value: 'Power (W)', angle: -90, position: 'insideLeft' }}
-                          stroke="#666"
-                        />
-                        <Tooltip 
+                        <XAxis dataKey="name" stroke="#666" />
+                        <YAxis label={{ value: 'Power (W)', angle: -90, position: 'insideLeft' }} stroke="#666" />
+                        <Tooltip
                           contentStyle={{ backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: 8 }}
-                          formatter={(value) => `${value.toFixed(4)}W`}
+                          formatter={(value) => `${Number(value).toFixed(4)} W`}
                         />
                         <Legend />
-                        <Bar 
-                          dataKey="power" 
-                          fill="#2196f3"
-                          name="Power (V × I)"
-                          radius={[8, 8, 0, 0]}
-                        />
+                        <Bar dataKey="power" fill="#2196f3" name="Power (W)" radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
@@ -683,9 +561,9 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
                   <Typography variant="h6" gutterBottom fontWeight="bold">
                     Raw Sensor Data (Real-time from AWS)
                   </Typography>
-                  {(panelData?.data || panelData) ? (
+                  {panelData ? (
                     <Grid container spacing={2}>
-                      {Object.entries(panelData?.data || panelData).map(([key, data]) => (
+                      {Object.entries(panelData).map(([key, data]) => (
                         <Grid item xs={12} sm={6} key={key}>
                           <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
                             <Typography variant="subtitle2" fontWeight="bold">
@@ -695,9 +573,7 @@ const SolarPanelGrid = ({ onPanelSelect }) => {
                               {data?.value !== null && data?.value !== undefined ? Number(data.value).toFixed(4) : 'N/A'}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
-                              {data?.timestamp?.timeInSeconds
-                                ? `Updated: ${new Date(data.timestamp.timeInSeconds * 1000).toLocaleString()}`
-                                : ''}
+                              {data?.timestamp ? `Updated: ${new Date(Number(data.timestamp) * 1000).toLocaleString()}` : ''}
                             </Typography>
                           </Paper>
                         </Grid>
