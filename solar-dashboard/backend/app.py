@@ -6,8 +6,15 @@ import requests
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from defect_detector import DefectDetector
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
-# Load environment variables from .env file
+# Load environment variables from .env files (prefer repo root)
+_HERE = Path(__file__).resolve()
+load_dotenv(_HERE.parent / ".env")
+load_dotenv(_HERE.parents[1] / ".env")
+load_dotenv(_HERE.parents[2] / ".env")
+load_dotenv(_HERE.parents[3] / ".env")
 load_dotenv()
 
 # Add parent directory to path to import rag_module
@@ -24,7 +31,6 @@ ASSET_ID = "cd29fe97-2d5e-47b4-a951-04c9e29544ac"
 # FastAPI (YOLOv8 + RAG + Gemini) backend base URL
 FASTAPI_BACKEND_URL = os.getenv("FASTAPI_BACKEND_URL", "http://localhost:8000")
 
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
 WARDHA_LAT = 20.7453
 WARDHA_LON = 78.6022
 
@@ -84,7 +90,7 @@ def health():
 @app.route("/api/weather/wardha", methods=["GET"])
 def get_weather_wardha():
     """Fetch live weather for Wardha using OpenWeather."""
-    api_key = OPENWEATHER_API_KEY or request.args.get("appid") or ""
+    api_key = os.getenv("OPENWEATHER_API_KEY", "").strip() or request.args.get("appid") or ""
     if not api_key:
         return jsonify({"error": "Missing OPENWEATHER_API_KEY"}), 500
 
@@ -269,6 +275,34 @@ def get_camera_feed():
     """Proxy endpoint to fetch camera feed from ESP32 camera"""
     fallback_path = os.path.join(os.path.dirname(__file__), "image.png")
 
+    def _candidate_camera_urls(raw: str):
+        raw = (raw or "").strip()
+        if not raw:
+            return []
+
+        p = urlparse(raw)
+        if not p.scheme:
+            p = urlparse("http://" + raw)
+
+        path = p.path or "/"
+        if path != "/" and path.endswith("/"):
+            path = path[:-1]
+        base_path = "/" if path in ("", "/") else path
+
+        base = urlunparse((p.scheme, p.netloc, base_path, "", "", ""))
+        base_slash = base if base.endswith("/") else base + "/"
+
+        capture = base if base_path.endswith("/capture") else base_slash + "capture"
+        stream = base if base_path.endswith("/stream") else base_slash + "stream"
+        jpg = base if base_path.endswith("/jpg") else base_slash + "jpg"
+
+        urls = []
+        # Prefer single-image endpoints first
+        for u in (capture, jpg, raw, base_slash, stream):
+            if u and u not in urls:
+                urls.append(u)
+        return urls
+
     def _fallback_image_response():
         try:
             if os.path.exists(fallback_path):
@@ -284,14 +318,29 @@ def get_camera_feed():
         if not camera_url:
             return jsonify({"error": "Camera URL parameter is required"}), 400
         
-        print(f"📷 Fetching camera feed from: {camera_url}")
-        
-        # Fetch image from camera
-        response = requests.get(camera_url, timeout=10)
-        response.raise_for_status()
-        
-        # Return image with appropriate headers
-        return Response(response.content, mimetype=response.headers.get('content-type', 'image/jpeg'))
+        last_error = None
+        for url in _candidate_camera_urls(camera_url):
+            try:
+                print(f"📷 Fetching camera feed from: {url}")
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+
+                content_type = (response.headers.get("content-type") or "").lower()
+                body = response.content or b""
+                is_jpeg = body.startswith(b"\xff\xd8\xff")
+                is_png = body.startswith(b"\x89PNG\r\n\x1a\n")
+                if not ("image/" in content_type or is_jpeg or is_png):
+                    raise requests.exceptions.RequestException(
+                        f"Camera response is not an image (content-type={content_type or 'unknown'}, size={len(body)})"
+                    )
+
+                return Response(body, mimetype=(content_type if "image/" in content_type else "image/jpeg"))
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                continue
+
+        print(f"❌ Cannot fetch image from camera: {last_error}")
+        return _fallback_image_response()
         
     except requests.exceptions.Timeout:
         print(f"⏱️ Camera request timeout")

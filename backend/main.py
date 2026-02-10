@@ -367,9 +367,11 @@ def _esp32_candidate_urls(url: str) -> list[str]:
     # Prefer /capture (often the only endpoint that returns an image)
     if capture not in candidates:
         candidates.append(capture)
-    if raw not in candidates:
+    # Only try the raw URL if it is different from /capture
+    if raw and raw != capture and raw not in candidates:
         candidates.append(raw)
-    if base_slash not in candidates:
+    # Only try base '/' when the provided URL was not already a specific path
+    if base_path in ("", "/") and base_slash not in candidates:
         candidates.append(base_slash)
     return candidates
 
@@ -377,10 +379,12 @@ def _get_esp32_image() -> bytes:
     """Try to get image from ESP32, fallback to image.png if unavailable"""
     last_error: Exception | None = None
 
+    timeout_s = float(os.getenv("ESP32_TIMEOUT_SECONDS", "5") or "5")
+
     for candidate in _esp32_candidate_urls(_get_esp32_cam_url()):
         try:
             print(f"📸 Attempting to fetch from ESP32: {candidate}")
-            r = requests.get(candidate, timeout=5)
+            r = requests.get(candidate, timeout=timeout_s)
             r.raise_for_status()
             content_type = (r.headers.get("content-type") or "").lower()
             body = r.content or b""
@@ -394,6 +398,7 @@ def _get_esp32_image() -> bytes:
             return body
         except requests.exceptions.RequestException as e:
             last_error = e
+            print(f"⚠️  ESP32 candidate failed: {candidate} -> {e}")
             continue
 
     print(f"⚠️  ESP32-CAM unavailable: {last_error}")
