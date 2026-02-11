@@ -3,6 +3,7 @@ import { Grid, Paper, Typography, Box, CircularProgress, Alert, Button, Dialog, 
 import { Bolt, ErrorOutline, CheckCircle, Videocam, TrendingUp, Close } from '@mui/icons-material';
 import CameraViewer from './CameraViewer';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { absNumber } from '../utils/numbers';
 
 const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   const [loading, setLoading] = useState(true);
@@ -14,6 +15,12 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   const [panelData, setPanelData] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [tabValue, setTabValue] = useState(0);
+
+  const trunc2 = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return 0;
+    return Math.trunc(num * 100) / 100;
+  };
 
   const VALUES_ENDPOINT = '/api/panel/readings';
 
@@ -82,8 +89,8 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   };
 
   const calculateSummary = () => {
-    const p1 = Number(panelData?.P1?.value || 0);
-    const p3 = Number(panelData?.P3?.value || 0);
+    const p1 = absNumber(panelData?.P1?.value || 0);
+    const p3 = absNumber(panelData?.P3?.value || 0);
     const totalOutput = p1 + p1 + p3;
 
     const classify = (p) => {
@@ -97,18 +104,18 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
     const unhealthyCount = classes.filter((c) => c === 'critical').length;
     const averageHealth = ((healthyCount / 3) * 100).toFixed(0);
 
-    return { totalOutput, totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
+    return { totalOutput: trunc2(totalOutput).toFixed(2), totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
   };
 
   // Generate IV Curve data - Live values (V1/V2/V3 and I in mA)
   const generateIVCurveData = () => {
     if (!panelData) return [];
 
-    const I = Number(panelData?.I?.value || 0); // mA
+    const I = absNumber(panelData?.I?.value || 0); // mA
     const points = [
-      { voltage: Number(panelData?.V1?.value || 0), current: I, label: 'V1' },
-      { voltage: Number(panelData?.V2?.value || 0), current: I, label: 'V2' },
-      { voltage: Number(panelData?.V3?.value || 0), current: I, label: 'V3' }
+      { voltage: absNumber(panelData?.V1?.value || 0), current: I, label: 'V1' },
+      { voltage: absNumber(panelData?.V2?.value || 0), current: I, label: 'V2' },
+      { voltage: absNumber(panelData?.V3?.value || 0), current: I, label: 'V3' }
     ];
 
     return points
@@ -128,9 +135,9 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
     if (!panelData) return [];
 
     return [
-      { name: 'Panel 1', power: Number(panelData?.P1?.value || 0) },
-      { name: 'Panel 2', power: Number(panelData?.P1?.value || 0) },
-      { name: 'Panel 3', power: Number(panelData?.P3?.value || 0) }
+      { name: 'Panel 1', power: absNumber(panelData?.P1?.value || 0) },
+      { name: 'Panel 2', power: absNumber(panelData?.P1?.value || 0) },
+      { name: 'Panel 3', power: absNumber(panelData?.P3?.value || 0) }
     ].map((p) => ({ ...p, power: Number(p.power.toFixed(4)) }));
   };
 
@@ -205,9 +212,9 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
       try {
         const map = SENSOR_MAP[panel.id];
-        const voltage = Number(panelData?.[map.voltageKey]?.value || 0);
-        const current = Number(panelData?.[map.currentKey]?.value || 0); // mA
-        const power = Number(panelData?.[map.powerKey]?.value || 0); // W
+        const voltage = absNumber(panelData?.[map.voltageKey]?.value || 0);
+        const current = absNumber(panelData?.[map.currentKey]?.value || 0); // mA
+        const power = absNumber(panelData?.[map.powerKey]?.value || 0); // W
 
         return { 
           voltage: Number(voltage.toFixed(4)),
@@ -570,7 +577,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
                               {key}
                             </Typography>
                             <Typography variant="h6" color="primary" sx={{ my: 1 }}>
-                              {data?.value !== null && data?.value !== undefined ? Number(data.value).toFixed(4) : 'N/A'}
+                              {data?.value !== null && data?.value !== undefined ? absNumber(data.value).toFixed(4) : 'N/A'}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
                               {data?.timestamp ? `Updated: ${new Date(Number(data.timestamp) * 1000).toLocaleString()}` : ''}

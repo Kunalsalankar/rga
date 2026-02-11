@@ -13,12 +13,14 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Snackbar,
   Toolbar,
   ThemeProvider,
   createTheme,
   Typography,
   Button
 } from '@mui/material';
+import Alert from '@mui/material/Alert';
 import {
   Bolt,
   Build,
@@ -35,6 +37,7 @@ import SolarPanelGrid from './components/SolarPanelGrid';
 import DigitalTwin from './components/DigitalTwin';
 import DashboardHome from './components/DashboardHome';
 import HistoricalAnalysis from './components/HistoricalAnalysis';
+import SolarHistory from './components/SolarHistory';
 import HealthReport from './components/HealthReport';
 import ScheduleMaintenance from './components/ScheduleMaintenance';
 import axios from 'axios';
@@ -75,6 +78,8 @@ function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [selectedPanel, setSelectedPanel] = useState(null);
   const [lastAutoNavTs, setLastAutoNavTs] = useState(0);
+  const [faultBannerOpen, setFaultBannerOpen] = useState(false);
+  const [faultBannerValue, setFaultBannerValue] = useState(null);
 
   useEffect(() => {
     // Fetch initial panel info
@@ -104,7 +109,8 @@ function App() {
         if (now - lastAutoNavTs < cooldownMs) return;
 
         setSelectedPanel({ id: 'SP-001' });
-        setActivePage('health-report');
+        setFaultBannerValue(p1);
+        setFaultBannerOpen(true);
         setLastAutoNavTs(now);
       } catch {
         // ignore
@@ -134,6 +140,7 @@ function App() {
     { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
     { id: 'live', label: 'Live Data', icon: <ShowChart /> },
     { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
+    { id: 'solar-history', label: 'Solar History', icon: <Insights /> },
     { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
     { id: 'maintenance', label: 'Maintenance', icon: <Build /> },
     { id: 'settings', label: 'Settings', icon: <Settings /> }
@@ -158,6 +165,37 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <Snackbar
+        open={faultBannerOpen}
+        onClose={(_, reason) => {
+          if (reason === 'clickaway') return;
+          setFaultBannerOpen(false);
+        }}
+        autoHideDuration={8000}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ mt: { xs: 7, sm: 8 } }}
+      >
+        <Alert
+          severity="warning"
+          variant="filled"
+          onClose={() => setFaultBannerOpen(false)}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                setActivePage('health-report');
+                setFaultBannerOpen(false);
+              }}
+              sx={{ textTransform: 'none', fontWeight: 800 }}
+            >
+              View Health Report
+            </Button>
+          }
+        >
+          Fault detected{faultBannerValue != null ? ` (P1: ${Number(faultBannerValue).toFixed(2)})` : ''}. Manual review recommended.
+        </Alert>
+      </Snackbar>
       {showDigitalTwin ? (
         <DigitalTwin onBack={() => setShowDigitalTwin(false)} panelInfo={panelInfo} />
       ) : (
@@ -302,6 +340,8 @@ function App() {
               <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
                 {activePage === 'historical' ? (
                   <HistoricalAnalysis panelId={selectedPanel?.id || null} />
+                ) : activePage === 'solar-history' ? (
+                  <SolarHistory assetId="SolarPanel_01" />
                 ) : activePage === 'dashboard' ? (
                   <>
                     <DashboardHome />

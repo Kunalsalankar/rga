@@ -12,6 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import axios from 'axios';
+import { absNumber } from '../utils/numbers';
 
 const RealTimeReadings = ({ reading }) => {
   const [history, setHistory] = useState({ current: [], voltage: [], temperature: [] });
@@ -119,25 +120,25 @@ const RealTimeReadings = ({ reading }) => {
     
     switch(panelNum) {
       case 1:
-        v = panelData.V1?.value || 0;
-        i = panelData.I1?.value || 0;
+        v = absNumber(panelData.V1?.value || 0);
+        i = absNumber(panelData.I1?.value || 0);
         // Convert mA to A for power calculation: (V * I_mA / 1000) = P in W
-        p = (v * (i / 1000)).toFixed(3);
+        p = absNumber(v * (i / 1000)).toFixed(3);
         return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
       case 2:
-        v = panelData.V2?.value || 0;
-        i = panelData.I1?.value || 0;
-        p = (v * (i / 1000)).toFixed(3);
+        v = absNumber(panelData.V2?.value || 0);
+        i = absNumber(panelData.I1?.value || 0);
+        p = absNumber(v * (i / 1000)).toFixed(3);
         return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
       case 3:
-        v = panelData.V3?.value || 0;
-        i = panelData.I2?.value || 0;
-        p = (v * (i / 1000)).toFixed(3);
+        v = absNumber(panelData.V3?.value || 0);
+        i = absNumber(panelData.I2?.value || 0);
+        p = absNumber(v * (i / 1000)).toFixed(3);
         return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
       case 4:
-        v = panelData.V4?.value || 0;
-        i = panelData.I2?.value || 0;
-        p = (v * (i / 1000)).toFixed(3);
+        v = absNumber(panelData.V4?.value || 0);
+        i = absNumber(panelData.I2?.value || 0);
+        p = absNumber(v * (i / 1000)).toFixed(3);
         return { voltage: v?.toFixed(3), current: i?.toFixed(0), power: p };
       default:
         return { voltage: 'N/A', current: 'N/A', power: 'N/A' };
@@ -151,9 +152,9 @@ const RealTimeReadings = ({ reading }) => {
 
   const chartData = history.current?.map((item, index) => ({
     time: formatTime(item.timestamp),
-    Current: item.value,
-    Voltage: history.voltage?.[index]?.value || 0,
-    Temperature: history.temperature?.[index]?.value || 0,
+    Current: absNumber(item.value),
+    Voltage: absNumber(history.voltage?.[index]?.value || 0),
+    Temperature: absNumber(history.temperature?.[index]?.value || 0),
   })) || [];
 
   const StatCard = ({ icon, title, value, unit, color }) => (
@@ -185,7 +186,11 @@ const RealTimeReadings = ({ reading }) => {
             {title}
           </Typography>
           <Typography variant="h4" fontWeight="bold" color={color}>
-            {value !== null && value !== undefined ? `${value} ${unit}` : '--'}
+            {value !== null && value !== undefined
+              ? Number.isFinite(Number(value))
+                ? `${absNumber(value)} ${unit}`
+                : `${value} ${unit}`
+              : '--'}
           </Typography>
         </Box>
       </Box>
@@ -212,7 +217,7 @@ const RealTimeReadings = ({ reading }) => {
           <StatCard
             icon={<Bolt sx={{ fontSize: 32 }} />}
             title="Current I1"
-            value={panelData.I1?.value?.toFixed(0) || 'N/A'}
+            value={panelData.I1?.value != null ? absNumber(panelData.I1.value).toFixed(0) : 'N/A'}
             unit="mA"
             color="#1976d2"
           />
@@ -221,7 +226,7 @@ const RealTimeReadings = ({ reading }) => {
           <StatCard
             icon={<Bolt sx={{ fontSize: 32 }} />}
             title="Current I2"
-            value={panelData.I2?.value?.toFixed(0) || 'N/A'}
+            value={panelData.I2?.value != null ? absNumber(panelData.I2.value).toFixed(0) : 'N/A'}
             unit="mA"
             color="#1976d2"
           />

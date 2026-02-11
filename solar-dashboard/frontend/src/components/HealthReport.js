@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   Box,
@@ -37,13 +37,16 @@ import {
   Info,
   Insights,
   LocationOn,
+  MenuBook,
   PhotoCamera,
   TrendingUp,
   WarningAmber
 } from '@mui/icons-material';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './HealthReport.css';
+import { absNumber } from '../utils/numbers';
 
 const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
   const [reportData, setReportData] = useState(null);
@@ -232,21 +235,27 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
               confidence01: reportData.defect_analysis?.confidence,
             }),
           voltage_voc:
-            reportData.current_health?.voltage_avg_volts ??
-            reportData.sensor_data?.voltage?.V1,
+            absNumber(
+              reportData.current_health?.voltage_avg_volts ??
+                reportData.sensor_data?.voltage?.V1
+            ),
           current_isc:
-            reportData.current_health?.current_avg_amperes ??
-            reportData.sensor_data?.current,
-          temperature_c: reportData.current_health?.temperature_c,
-          efficiency_percent: reportData.current_health?.efficiency_percent,
+            absNumber(
+              reportData.current_health?.current_avg_amperes ??
+                reportData.sensor_data?.current
+            ),
+          temperature_c: absNumber(reportData.current_health?.temperature_c),
+          efficiency_percent: absNumber(reportData.current_health?.efficiency_percent),
           max_power_w:
-            reportData.current_health?.max_power_w ??
-            reportData.sensor_data?.power?.P1,
+            absNumber(
+              reportData.current_health?.max_power_w ??
+                reportData.sensor_data?.power?.P1
+            ),
         },
         defect: reportData.defect_analysis
           ? {
               type: reportData.defect_analysis?.defect,
-              confidence: Number(reportData.defect_analysis?.confidence || 0) * 100,
+              confidence: absNumber(reportData.defect_analysis?.confidence || 0) * 100,
               affected_area: reportData.defect_analysis?.affected_area,
             }
           : null,
@@ -256,9 +265,9 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
   const readingsMapped = readingsData
     ? {
         current_health: {
-          voltage_voc: pickReadingValue(readingsData, 'V1') ?? readingsData?.voltage?.V1,
-          current_isc: pickReadingValue(readingsData, 'I') ?? readingsData?.current,
-          max_power_w: pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1,
+          voltage_voc: absNumber(pickReadingValue(readingsData, 'V1') ?? readingsData?.voltage?.V1),
+          current_isc: absNumber(pickReadingValue(readingsData, 'I') ?? readingsData?.current),
+          max_power_w: absNumber(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1),
         },
       }
     : null;
@@ -284,7 +293,6 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
       : healthScore >= 75
         ? { label: 'NEEDS ATTENTION', color: '#f59e0b', icon: WarningAmber }
         : { label: 'CRITICAL', color: '#ef4444', icon: ErrorOutline };
-  const StatusIcon = status.icon;
 
   const MetricCard = ({ title, value, unit, color }) => (
     <Paper
@@ -304,7 +312,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
       </Typography>
       <LinearProgress
         variant="determinate"
-        value={Math.max(5, Math.min(100, (Number(value) || 0) * 2))}
+        value={Math.max(5, Math.min(100, absNumber(value) * 2))}
         sx={{
           mt: 1,
           height: 6,
@@ -335,6 +343,104 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
     (typeof reportData?.knowledge_context === 'string' && reportData.knowledge_context.trim())
       ? reportData.knowledge_context
       : null;
+
+  const markdownComponents = useMemo(
+    () => ({
+      h1: ({ children, ...props }) => (
+        <Typography variant="h6" fontWeight={900} sx={{ mt: 0, mb: 1.25 }} {...props}>
+          {children}
+        </Typography>
+      ),
+      h2: ({ children, ...props }) => (
+        <Typography variant="subtitle1" fontWeight={900} sx={{ mt: 1.75, mb: 1 }} {...props}>
+          {children}
+        </Typography>
+      ),
+      h3: ({ children, ...props }) => (
+        <Typography variant="body1" fontWeight={900} sx={{ mt: 1.25, mb: 0.75 }} {...props}>
+          {children}
+        </Typography>
+      ),
+      p: ({ children, ...props }) => (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, lineHeight: 1.8 }} {...props}>
+          {children}
+        </Typography>
+      ),
+      ul: ({ children, ...props }) => (
+        <Box component="ul" sx={{ pl: 2.25, mb: 1.25, mt: 0.5, color: 'text.secondary' }} {...props}>
+          {children}
+        </Box>
+      ),
+      ol: ({ children, ...props }) => (
+        <Box component="ol" sx={{ pl: 2.25, mb: 1.25, mt: 0.5, color: 'text.secondary' }} {...props}>
+          {children}
+        </Box>
+      ),
+      li: ({ children, ...props }) => (
+        <Box component="li" sx={{ mb: 0.5, lineHeight: 1.7 }} {...props}>
+          <Typography component="span" variant="body2" color="text.secondary">
+            {children}
+          </Typography>
+        </Box>
+      ),
+      table: ({ children, ...props }) => (
+        <Box
+          sx={{
+            width: '100%',
+            overflowX: 'auto',
+            mb: 1.5,
+            border: '1px solid #eaeaea',
+            borderRadius: 2,
+          }}
+        >
+          <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }} {...props}>
+            {children}
+          </Box>
+        </Box>
+      ),
+      th: ({ children, ...props }) => (
+        <Box
+          component="th"
+          sx={{
+            textAlign: 'left',
+            fontSize: 12,
+            fontWeight: 900,
+            color: '#111827',
+            p: 1,
+            borderBottom: '1px solid #eaeaea',
+            bgcolor: '#f8fafc',
+            whiteSpace: 'nowrap',
+          }}
+          {...props}
+        >
+          {children}
+        </Box>
+      ),
+      td: ({ children, ...props }) => (
+        <Box component="td" sx={{ fontSize: 13, p: 1, borderBottom: '1px solid #f1f5f9', color: '#334155' }} {...props}>
+          {children}
+        </Box>
+      ),
+      code: ({ children, ...props }) => (
+        <Box
+          component="code"
+          sx={{
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            fontSize: 12,
+            bgcolor: '#f1f5f9',
+            color: '#0f172a',
+            px: 0.75,
+            py: 0.25,
+            borderRadius: 1,
+          }}
+          {...props}
+        >
+          {children}
+        </Box>
+      ),
+    }),
+    []
+  );
 
   return (
     <Box>
@@ -531,7 +637,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                         MAX POWER OUTPUT
                       </Typography>
                       <Typography variant="h5" fontWeight={900}>
-                        {Number(showData.current_health.max_power_w).toFixed(1)} W
+                        {absNumber(showData.current_health.max_power_w).toFixed(1)} W
                       </Typography>
                     </Box>
                   </Box>
@@ -542,16 +648,16 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
 
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="VOLTAGE (VOC)" value={Number(showData.current_health.voltage_voc).toFixed(1)} unit="V" color="#22c55e" />
+              <MetricCard title="VOLTAGE (VOC)" value={absNumber(showData.current_health.voltage_voc).toFixed(1)} unit="V" color="#22c55e" />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="CURRENT (ISC)" value={Number(showData.current_health.current_isc).toFixed(1)} unit="A" color="#22c55e" />
+              <MetricCard title="CURRENT (ISC)" value={absNumber(showData.current_health.current_isc).toFixed(1)} unit="A" color="#22c55e" />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="TEMPERATURE" value={Number(showData.current_health.temperature_c).toFixed(1)} unit="°C" color="#f59e0b" />
+              <MetricCard title="TEMPERATURE" value={absNumber(showData.current_health.temperature_c).toFixed(1)} unit="°C" color="#f59e0b" />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="EFFICIENCY" value={Number(showData.current_health.efficiency_percent).toFixed(1)} unit="%" color="#ef4444" />
+              <MetricCard title="EFFICIENCY" value={absNumber(showData.current_health.efficiency_percent).toFixed(1)} unit="%" color="#ef4444" />
             </Grid>
           </Grid>
 
@@ -698,7 +804,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                 </Typography>
                 <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
                 <Typography variant="caption" sx={{ color: '#86efac', fontWeight: 900 }}>
-                  Confidence: {Number(showData.defect.confidence).toFixed(1)}%
+                  Confidence: {absNumber(showData.defect.confidence).toFixed(1)}%
                 </Typography>
               </Box>
             </Box>
@@ -727,8 +833,10 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                 <Insights sx={{ color: '#22c55e' }} />
                 <Typography fontWeight={900}>AI Recommendation (Gemini + RAG)</Typography>
               </Box>
-              <Box sx={{ color: 'text.secondary', '& p': { marginTop: 0, marginBottom: '12px' } }}>
-                <ReactMarkdown>{aiRecommendationMarkdown}</ReactMarkdown>
+              <Box sx={{ color: 'text.secondary' }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {aiRecommendationMarkdown}
+                </ReactMarkdown>
               </Box>
             </Paper>
           )}
@@ -736,11 +844,13 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
           {ragContextMarkdown && (
             <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Info sx={{ color: '#22c55e' }} />
+                <MenuBook sx={{ color: '#22c55e' }} />
                 <Typography fontWeight={900}>Retrieved Context (RAG)</Typography>
               </Box>
-              <Box sx={{ color: 'text.secondary', maxHeight: 260, overflowY: 'auto', '& p': { marginTop: 0, marginBottom: '12px' } }}>
-                <ReactMarkdown>{ragContextMarkdown}</ReactMarkdown>
+              <Box sx={{ color: 'text.secondary', maxHeight: 260, overflowY: 'auto' }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {ragContextMarkdown}
+                </ReactMarkdown>
               </Box>
             </Paper>
           )}

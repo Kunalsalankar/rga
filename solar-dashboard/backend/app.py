@@ -28,6 +28,9 @@ CORS(app)
 AWS_API_ENDPOINT = "https://j8ql0tblwb.execute-api.us-east-1.amazonaws.com/prod/values"
 ASSET_ID = "cd29fe97-2d5e-47b4-a951-04c9e29544ac"
 
+# AWS API Gateway endpoint for historical data
+AWS_SOLAR_HISTORY_ENDPOINT = "https://tm6scx17o3.execute-api.us-east-1.amazonaws.com/solar-history"
+
 # FastAPI (YOLOv8 + RAG + Gemini) backend base URL
 FASTAPI_BACKEND_URL = os.getenv("FASTAPI_BACKEND_URL", "http://localhost:8000")
 
@@ -186,6 +189,62 @@ def get_panel_readings():
         print(f"❌ Error fetching from AWS API: {e}")
         dummy_sensor_data = _get_dummy_sensor_data(asset_id)
         return jsonify(dummy_sensor_data), 200
+
+
+@app.route("/api/solar-history", methods=["GET"])
+def get_solar_history():
+    """Proxy historical solar panel data from AWS API Gateway to avoid browser CORS."""
+    asset_id = request.args.get("assetId", "SolarPanel_01")
+    try:
+        resp = requests.get(
+            AWS_SOLAR_HISTORY_ENDPOINT,
+            params={"assetId": asset_id},
+            timeout=10,
+        )
+
+        if resp.status_code >= 400:
+            return (
+                jsonify(
+                    {
+                        "error": "AWS solar-history returned error",
+                        "status": resp.status_code,
+                        "body": resp.text,
+                    }
+                ),
+                resp.status_code,
+            )
+
+        try:
+            data = resp.json()
+        except Exception:
+            return (
+                jsonify(
+                    {
+                        "error": "AWS solar-history response was not valid JSON",
+                        "status": resp.status_code,
+                        "body": resp.text,
+                    }
+                ),
+                502,
+            )
+
+        if not isinstance(data, list):
+            return (
+                jsonify(
+                    {
+                        "error": "Unexpected solar-history response",
+                        "message": "Expected a JSON array",
+                        "received_type": str(type(data)),
+                    }
+                ),
+                502,
+            )
+
+        return jsonify(data), 200
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "AWS solar-history timeout"}), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Failed to fetch solar-history", "message": str(e)}), 502
 
 
 @app.route("/api/panel/health-report", methods=["GET"])

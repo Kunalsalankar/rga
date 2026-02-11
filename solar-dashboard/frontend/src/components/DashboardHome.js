@@ -30,6 +30,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import { absNumber } from '../utils/numbers';
 
 const DashboardHome = () => {
   const [timeRange, setTimeRange] = useState('Last 7 Days');
@@ -37,6 +38,12 @@ const DashboardHome = () => {
   const [readingsError, setReadingsError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [powerSeries, setPowerSeries] = useState([]);
+
+  const trunc2 = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return 0;
+    return Math.trunc(num * 100) / 100;
+  };
 
   const pickReadingValue = (obj, key) => {
     const raw = obj?.[key];
@@ -59,13 +66,13 @@ const DashboardHome = () => {
         const ts = new Date();
         setLastUpdated(ts);
 
-        const p1 = Number(pickReadingValue(data, 'P1') ?? data?.power?.P1 ?? 0);
-        const p2 = Number(pickReadingValue(data, 'P2') ?? data?.power?.P2 ?? 0);
-        const p3 = Number(pickReadingValue(data, 'P3') ?? data?.power?.P3 ?? 0);
+        const p1 = absNumber(pickReadingValue(data, 'P1') ?? data?.power?.P1 ?? 0);
+        const p2 = absNumber(pickReadingValue(data, 'P2') ?? data?.power?.P2 ?? 0);
+        const p3 = absNumber(pickReadingValue(data, 'P3') ?? data?.power?.P3 ?? 0);
         const totalW = p1 + p2 + p3;
 
         setPowerSeries((prev) => {
-          const next = [...prev, { time: ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), mw: Number((totalW / 1000).toFixed(3)) }];
+          const next = [...prev, { time: ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), w: Number(totalW.toFixed(2)) }];
           return next.length > 24 ? next.slice(next.length - 24) : next;
         });
       } catch (e) {
@@ -95,9 +102,9 @@ const DashboardHome = () => {
       const powerKeys = ['P1', 'P2', 'P3'];
       const totalPanels = powerKeys.filter((k) => pickReadingValue(readingsData, k) != null || readingsData?.power?.[k] != null).length || powerKeys.length;
 
-      const p1 = Number(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
-      const p2 = Number(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
-      const p3 = Number(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
+      const p1 = absNumber(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
+      const p2 = absNumber(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
+      const p3 = absNumber(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
       const classes = [classify(p1), classify(p2), classify(p3)];
 
       const healthy = classes.filter((c) => c === 'healthy').length;
@@ -105,7 +112,6 @@ const DashboardHome = () => {
       const critical = classes.filter((c) => c === 'critical').length;
 
       const totalW = p1 + p2 + p3;
-      const totalKw = totalW / 1000;
       const efficiency = ((healthy / Math.max(1, totalPanels)) * 100).toFixed(0);
 
       return [
@@ -113,7 +119,7 @@ const DashboardHome = () => {
         { label: 'Active', value: String(healthy), icon: <Bolt />, color: '#22c55e' },
         { label: 'Warning', value: String(warning), icon: <WarningAmber />, color: '#f59e0b' },
         { label: 'Critical', value: String(critical), icon: <ErrorOutline />, color: '#ef4444' },
-        { label: 'Total Power', value: `${totalKw.toFixed(3)} kW`, icon: <Bolt />, color: '#16a34a' },
+        { label: 'Total Power', value: `${trunc2(totalW).toFixed(2)} W`, icon: <Bolt />, color: '#16a34a' },
         { label: 'Avg Efficiency', value: `${efficiency}%`, icon: <Bolt />, color: '#6366f1' }
       ];
     },
@@ -132,9 +138,9 @@ const DashboardHome = () => {
       const powerKeys = ['P1', 'P2', 'P3'];
       const totalPanels = powerKeys.filter((k) => pickReadingValue(readingsData, k) != null || readingsData?.power?.[k] != null).length || powerKeys.length;
 
-      const p1 = Number(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
-      const p2 = Number(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
-      const p3 = Number(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
+      const p1 = absNumber(pickReadingValue(readingsData, 'P1') ?? readingsData?.power?.P1 ?? 0);
+      const p2 = absNumber(pickReadingValue(readingsData, 'P2') ?? readingsData?.power?.P2 ?? 0);
+      const p3 = absNumber(pickReadingValue(readingsData, 'P3') ?? readingsData?.power?.P3 ?? 0);
       const classes = [classify(p1), classify(p2), classify(p3)];
 
       const healthy = classes.filter((c) => c === 'healthy').length;
@@ -246,7 +252,7 @@ const DashboardHome = () => {
               <Box>
                 <Typography fontWeight={900}>Power Output vs Time</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Performance measured in megawatts (MW)
+                  Performance measured in watts (W)
                 </Typography>
               </Box>
               <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 800 }}>
@@ -265,9 +271,9 @@ const DashboardHome = () => {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" stroke="#666" />
-                  <YAxis stroke="#666" />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="mw" stroke="#22c55e" strokeWidth={3} fill="url(#powerFill)" dot={false} />
+                  <YAxis stroke="#666" tickFormatter={(v) => `${Number(v).toFixed(0)} W`} />
+                  <Tooltip formatter={(v) => [`${Number(v).toFixed(2)} W`, 'Power']} />
+                  <Area type="monotone" dataKey="w" stroke="#22c55e" strokeWidth={3} fill="url(#powerFill)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </Box>
