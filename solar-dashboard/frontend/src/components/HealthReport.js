@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   Alert,
   Box,
@@ -58,6 +58,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
   const [weatherError, setWeatherError] = useState(null);
   const [imageTimestamp, setImageTimestamp] = useState(new Date().getTime());
   const [cameraError, setCameraError] = useState(null);
+  const reportCacheRef = useRef(new Map());
 
   const cameraUrl = process.env.REACT_APP_ESP32_CAMERA_URL || 'http://10.86.72.244/';
 
@@ -70,15 +71,26 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
   useEffect(() => {
     let cancelled = false;
 
-    const fetchHealthReport = async () => {
+    const cacheKey = panelId || '__default__';
+    const cached = reportCacheRef.current.get(cacheKey);
+    if (cached) {
+      setReportData(cached);
+      setLoading(false);
+      setError(null);
+    }
+
+    const fetchHealthReport = async ({ bypassCache = false } = {}) => {
       try {
-        setLoading(true);
+        if (bypassCache || !cached) {
+          setLoading(true);
+        }
         const url = panelId
           ? `/api/panel/health-report?panel_id=${panelId}`
           : '/api/panel/health-report';
         const response = await axios.get(url);
         if (cancelled) return;
         setReportData(response.data);
+        reportCacheRef.current.set(cacheKey, response.data);
         setError(null);
       } catch (err) {
         console.error('Error fetching health report:', err);
@@ -91,13 +103,45 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
       }
     };
 
-    fetchHealthReport();
-    const id = setInterval(fetchHealthReport, 5000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [panelId]);
+
+  const runAnalysis = async () => {
+    const cacheKey = panelId || '__default__';
+    try {
+      setError(null);
+      setLoading(true);
+      const url = panelId
+        ? `/api/panel/health-report?panel_id=${panelId}`
+        : '/api/panel/health-report';
+      const response = await axios.get(url);
+      setReportData(response.data);
+      reportCacheRef.current.set(cacheKey, response.data);
+    } catch (err) {
+      setError(err?.message || 'Failed to fetch AI health report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportJson = () => {
+    const payload = reportData || data || fallback;
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `health-report_${(payload?.panel_id || panelId || 'panel').toString()}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e?.message || 'Failed to export report');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -519,9 +563,18 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
             variant="outlined"
             startIcon={<Download />}
             sx={{ textTransform: 'none', borderRadius: 2 }}
-            onClick={() => {}}
+            onClick={exportJson}
           >
-            Export PDF
+            Export
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Insights />}
+            sx={{ textTransform: 'none', borderRadius: 2 }}
+            onClick={runAnalysis}
+            disabled={loading}
+          >
+            Re-run Analysis
           </Button>
           <Button
             variant="contained"

@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
-  CircularProgress,
   Grid,
   IconButton,
   Paper,
+  Skeleton,
   Typography
 } from '@mui/material';
 import { Bolt, CalendarMonth, Refresh, Speed, Tune } from '@mui/icons-material';
@@ -183,6 +183,13 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
         unit: 'W',
         color: '#ef4444',
         icon: <Bolt />
+      },
+      {
+        label: 'P3',
+        value: latest ? formatAbsFixed(latest.P3, 2) : '—',
+        unit: 'W',
+        color: '#f97316',
+        icon: <Bolt />
       }
     ];
   }, [latest]);
@@ -226,10 +233,32 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
 
       {loading ? (
         <Paper elevation={0} sx={{ p: 4, borderRadius: 2, border: '1px solid #eaeaea', bgcolor: '#fff' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <CircularProgress size={22} />
-            <Typography fontWeight={800}>Loading historical data…</Typography>
-          </Box>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            {Array.from({ length: 8 }).map((_, idx) => (
+              <Grid item xs={12} sm={6} md={4} lg={3} key={idx}>
+                <Paper elevation={0} sx={{ p: 2.25, borderRadius: 2, border: '1px solid #eaeaea' }}>
+                  <Skeleton variant="rounded" width={38} height={38} />
+                  <Skeleton variant="text" sx={{ mt: 1.5 }} width="40%" />
+                  <Skeleton variant="text" width="60%" />
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+
+          <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
+            <Skeleton variant="text" width="30%" />
+            <Skeleton variant="text" width="50%" />
+            <Skeleton variant="rounded" sx={{ mt: 2 }} height={280} />
+          </Paper>
+        </Paper>
+      ) : !error && (!data || data.length === 0) ? (
+        <Paper elevation={0} sx={{ p: 4, borderRadius: 2, border: '1px solid #eaeaea', bgcolor: '#fff' }}>
+          <Typography fontWeight={900} sx={{ mb: 0.5 }}>
+            No historical data available
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try refreshing, or check if the backend proxy is running.
+          </Typography>
         </Paper>
       ) : (
         <>

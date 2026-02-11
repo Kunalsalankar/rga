@@ -30,7 +30,7 @@ const MetricLineChart = ({ title, subtitle, data, lines, yUnit, yDecimals = 2 })
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="timeLabel" stroke="#666" minTickGap={24} />
+            <XAxis dataKey="timeLabel" stroke="#666" minTickGap={28} interval="preserveStartEnd" />
             <YAxis
               stroke="#666"
               tickFormatter={(v) => `${absNumber(v).toFixed(0)}${yUnit ? ` ${yUnit}` : ''}`}

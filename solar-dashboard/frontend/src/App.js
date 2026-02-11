@@ -83,6 +83,17 @@ function App() {
   const [faultBannerValue, setFaultBannerValue] = useState(null);
 
   useEffect(() => {
+    // Restore state from URL
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const page = params.get('page');
+      const panel = params.get('panel');
+      if (page) setActivePage(page);
+      if (panel) setSelectedPanel({ id: panel });
+    } catch {
+      // ignore
+    }
+
     // Fetch initial panel info
     fetchPanelInfo();
     
@@ -93,6 +104,23 @@ function App() {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // Persist state in URL
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set('page', activePage);
+      if (selectedPanel?.id) {
+        params.set('panel', selectedPanel.id);
+      } else {
+        params.delete('panel');
+      }
+      const nextUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState(null, '', nextUrl);
+    } catch {
+      // ignore
+    }
+  }, [activePage, selectedPanel]);
 
   useEffect(() => {
     const maybeAutoNavigate = async () => {

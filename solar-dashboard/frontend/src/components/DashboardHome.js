@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Grid,
@@ -33,11 +34,13 @@ import {
 import { absNumber } from '../utils/numbers';
 
 const DashboardHome = () => {
-  const [timeRange, setTimeRange] = useState('Last 7 Days');
+  const [timeRange, setTimeRange] = useState('1h');
   const [readingsData, setReadingsData] = useState(null);
   const [readingsError, setReadingsError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [powerSeries, setPowerSeries] = useState([]);
+  const [energyTodayWh, setEnergyTodayWh] = useState(0);
+  const [peakToday, setPeakToday] = useState({ w: 0, tsMs: null });
 
   const trunc2 = (n) => {
     const num = Number(n);
@@ -51,8 +54,24 @@ const DashboardHome = () => {
     return raw;
   };
 
+  const rangeMs = useMemo(() => {
+    switch (timeRange) {
+      case '6h':
+        return 6 * 60 * 60 * 1000;
+      case '24h':
+        return 24 * 60 * 60 * 1000;
+      case '7d':
+        return 7 * 24 * 60 * 60 * 1000;
+      case '1h':
+      default:
+        return 60 * 60 * 1000;
+    }
+  }, [timeRange]);
+
   useEffect(() => {
     let cancelled = false;
+    let lastEnergyTsMs = null;
+    let dayKey = new Date().toDateString();
 
     const fetchReadings = async () => {
       try {
@@ -66,14 +85,49 @@ const DashboardHome = () => {
         const ts = new Date();
         setLastUpdated(ts);
 
+        const newDayKey = ts.toDateString();
+        if (newDayKey !== dayKey) {
+          dayKey = newDayKey;
+          lastEnergyTsMs = null;
+          setEnergyTodayWh(0);
+          setPeakToday({ w: 0, tsMs: null });
+        }
+
         const p1 = absNumber(pickReadingValue(data, 'P1') ?? data?.power?.P1 ?? 0);
         const p2 = absNumber(pickReadingValue(data, 'P2') ?? data?.power?.P2 ?? 0);
         const p3 = absNumber(pickReadingValue(data, 'P3') ?? data?.power?.P3 ?? 0);
         const totalW = p1 + p2 + p3;
 
+        const tsMs = ts.getTime();
+        setPeakToday((prev) => {
+          if (!Number.isFinite(totalW) || totalW <= (prev?.w || 0)) return prev;
+          return { w: totalW, tsMs };
+        });
+
+        // Energy integration for today (Wh)
+        if (Number.isFinite(totalW)) {
+          if (lastEnergyTsMs != null) {
+            const dtHours = (tsMs - lastEnergyTsMs) / (1000 * 60 * 60);
+            if (dtHours > 0 && dtHours < 1) {
+              setEnergyTodayWh((prev) => prev + (totalW * dtHours));
+            }
+          }
+          lastEnergyTsMs = tsMs;
+        }
+
         setPowerSeries((prev) => {
-          const next = [...prev, { time: ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), w: Number(totalW.toFixed(2)) }];
-          return next.length > 24 ? next.slice(next.length - 24) : next;
+          const next = [
+            ...prev,
+            {
+              tsMs,
+              time: ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              w: Number(totalW.toFixed(2))
+            }
+          ];
+          // Keep up to 7d in memory for filtering (cap to avoid runaway)
+          const cutoff = tsMs - (7 * 24 * 60 * 60 * 1000);
+          const trimmed = next.filter((p) => Number(p.tsMs || 0) >= cutoff);
+          return trimmed.length > 10000 ? trimmed.slice(trimmed.length - 10000) : trimmed;
         });
       } catch (e) {
         if (cancelled) return;
@@ -114,17 +168,39 @@ const DashboardHome = () => {
       const totalW = p1 + p2 + p3;
       const efficiency = ((healthy / Math.max(1, totalPanels)) * 100).toFixed(0);
 
+      const peakW = absNumber(peakToday?.w || 0);
+      const peakLabel = peakToday?.tsMs ? new Date(peakToday.tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+      const energyKwh = (absNumber(energyTodayWh) / 1000).toFixed(2);
+
       return [
         { label: 'Total Panels', value: String(totalPanels), icon: <GridView />, color: '#2563eb' },
         { label: 'Active', value: String(healthy), icon: <Bolt />, color: '#22c55e' },
         { label: 'Warning', value: String(warning), icon: <WarningAmber />, color: '#f59e0b' },
         { label: 'Critical', value: String(critical), icon: <ErrorOutline />, color: '#ef4444' },
         { label: 'Total Power', value: `${trunc2(totalW).toFixed(2)} W`, icon: <Bolt />, color: '#16a34a' },
+        { label: 'Today Energy', value: `${energyKwh} kWh`, icon: <Bolt />, color: '#0ea5e9' },
+        { label: 'Peak Power', value: `${trunc2(peakW).toFixed(2)} W`, icon: <Bolt />, color: '#8b5cf6', sub: peakLabel },
         { label: 'Avg Efficiency', value: `${efficiency}%`, icon: <Bolt />, color: '#6366f1' }
       ];
     },
-    [readingsData]
+    [readingsData, energyTodayWh, peakToday]
   );
+
+  const filteredPowerSeries = useMemo(() => {
+    const now = Date.now();
+    const cutoff = now - rangeMs;
+    return (powerSeries || []).filter((p) => Number(p.tsMs || 0) >= cutoff);
+  }, [powerSeries, rangeMs]);
+
+  const yDomain = useMemo(() => {
+    if (!filteredPowerSeries || filteredPowerSeries.length === 0) return [0, 10];
+    const vals = filteredPowerSeries.map((p) => Number(p.w || 0)).filter((n) => Number.isFinite(n));
+    if (vals.length === 0) return [0, 10];
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const pad = Math.max(1, (max - min) * 0.1);
+    return [Math.max(0, min - pad), max + pad];
+  }, [filteredPowerSeries]);
 
   const healthDist = useMemo(
     () => {
@@ -181,20 +257,25 @@ const DashboardHome = () => {
         </Box>
 
         <Stack direction="row" spacing={1.25} alignItems="center">
-          <Button
-            variant="contained"
-            disableElevation
-            sx={{
-              bgcolor: '#eef2ff',
-              color: '#111827',
-              textTransform: 'none',
-              borderRadius: 2,
-              '&:hover': { bgcolor: '#e0e7ff' }
-            }}
-            onClick={() => setTimeRange((v) => v)}
-          >
-            {timeRange}
-          </Button>
+          <ButtonGroup variant="outlined" disableElevation sx={{ bgcolor: '#eef2ff', borderRadius: 2 }}>
+            {['1h', '6h', '24h', '7d'].map((r) => (
+              <Button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: 2,
+                  fontWeight: 800,
+                  borderColor: 'transparent',
+                  ...(timeRange === r
+                    ? { bgcolor: '#e0e7ff' }
+                    : { bgcolor: 'transparent' })
+                }}
+              >
+                {r}
+              </Button>
+            ))}
+          </ButtonGroup>
           <IconButton sx={{ bgcolor: '#eef2ff', '&:hover': { bgcolor: '#e0e7ff' } }}>
             <Search fontSize="small" />
           </IconButton>
@@ -239,6 +320,11 @@ const DashboardHome = () => {
                 <Typography variant="h6" fontWeight={900}>
                   {kpi.value}
                 </Typography>
+                {kpi.sub ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    Peak at {kpi.sub}
+                  </Typography>
+                ) : null}
               </CardContent>
             </Card>
           </Grid>
@@ -262,7 +348,7 @@ const DashboardHome = () => {
 
             <Box sx={{ height: 320 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={powerSeries} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                <AreaChart data={filteredPowerSeries} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="powerFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#22c55e" stopOpacity={0.25} />
@@ -270,8 +356,8 @@ const DashboardHome = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="time" stroke="#666" />
-                  <YAxis stroke="#666" tickFormatter={(v) => `${Number(v).toFixed(0)} W`} />
+                  <XAxis dataKey="time" stroke="#666" minTickGap={24} />
+                  <YAxis domain={yDomain} stroke="#666" tickFormatter={(v) => `${Number(v).toFixed(0)} W`} />
                   <Tooltip formatter={(v) => [`${Number(v).toFixed(2)} W`, 'Power']} />
                   <Area type="monotone" dataKey="w" stroke="#22c55e" strokeWidth={3} fill="url(#powerFill)" dot={false} />
                 </AreaChart>
