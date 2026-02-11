@@ -76,6 +76,7 @@ function App() {
   const [panelInfo, setPanelInfo] = useState(null);
   const [showDigitalTwin, setShowDigitalTwin] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
+  const [mountedPages, setMountedPages] = useState({ dashboard: true });
   const [selectedPanel, setSelectedPanel] = useState(null);
   const [lastAutoNavTs, setLastAutoNavTs] = useState(0);
   const [faultBannerOpen, setFaultBannerOpen] = useState(false);
@@ -120,6 +121,13 @@ function App() {
     const id = setInterval(maybeAutoNavigate, 3000);
     return () => clearInterval(id);
   }, [lastAutoNavTs]);
+
+  useEffect(() => {
+    setMountedPages((prev) => {
+      if (prev[activePage]) return prev;
+      return { ...prev, [activePage]: true };
+    });
+  }, [activePage]);
 
   const fetchPanelInfo = async () => {
     try {
@@ -338,23 +346,41 @@ function App() {
             >
               <Toolbar />
               <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
-                {activePage === 'historical' ? (
-                  <HistoricalAnalysis panelId={selectedPanel?.id || null} />
-                ) : activePage === 'solar-history' ? (
-                  <SolarHistory assetId="SolarPanel_01" />
-                ) : activePage === 'dashboard' ? (
-                  <>
+                {mountedPages.dashboard && (
+                  <Box sx={{ display: activePage === 'dashboard' ? 'block' : 'none' }}>
                     <DashboardHome />
                     <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
-                  </>
-                ) : activePage === 'health-report' ? (
-                  <HealthReport
-                    panelId={selectedPanel?.id || null}
-                    onScheduleMaintenanceOpen={handleOpenScheduleMaintenance}
-                  />
-                ) : activePage === 'maintenance' ? (
-                  <ScheduleMaintenance panelId={selectedPanel?.id || null} />
-                ) : (
+                  </Box>
+                )}
+
+                {mountedPages.historical && (
+                  <Box sx={{ display: activePage === 'historical' ? 'block' : 'none' }}>
+                    <HistoricalAnalysis panelId={selectedPanel?.id || null} />
+                  </Box>
+                )}
+
+                {mountedPages['solar-history'] && (
+                  <Box sx={{ display: activePage === 'solar-history' ? 'block' : 'none' }}>
+                    <SolarHistory assetId="SolarPanel_01" isActive={activePage === 'solar-history'} />
+                  </Box>
+                )}
+
+                {mountedPages['health-report'] && (
+                  <Box sx={{ display: activePage === 'health-report' ? 'block' : 'none' }}>
+                    <HealthReport
+                      panelId={selectedPanel?.id || null}
+                      onScheduleMaintenanceOpen={handleOpenScheduleMaintenance}
+                    />
+                  </Box>
+                )}
+
+                {mountedPages.maintenance && (
+                  <Box sx={{ display: activePage === 'maintenance' ? 'block' : 'none' }}>
+                    <ScheduleMaintenance panelId={selectedPanel?.id || null} />
+                  </Box>
+                )}
+
+                {mountedPages[activePage] !== true && (
                   <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
                 )}
               </Box>

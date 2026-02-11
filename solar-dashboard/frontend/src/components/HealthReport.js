@@ -286,14 +286,6 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
     }
   };
 
-  const healthScore = Number(data.current_health.health_score || 0);
-  const status =
-    healthScore >= 90
-      ? { label: 'HEALTHY', color: '#22c55e', icon: CheckCircle }
-      : healthScore >= 75
-        ? { label: 'NEEDS ATTENTION', color: '#f59e0b', icon: WarningAmber }
-        : { label: 'CRITICAL', color: '#ef4444', icon: ErrorOutline };
-
   const MetricCard = ({ title, value, unit, color }) => (
     <Paper
       elevation={0}

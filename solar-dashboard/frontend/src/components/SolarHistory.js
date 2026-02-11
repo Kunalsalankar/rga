@@ -18,12 +18,15 @@ import './SolarHistory.css';
 const defaultAssetId = 'SolarPanel_01';
 const REFRESH_MS = 30000;
 
-const SolarHistory = ({ assetId = defaultAssetId }) => {
+const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const didInitFetchRef = useRef(false);
+  const prevActiveRef = useRef(isActive);
+  const dataRef = useRef([]);
 
   const formatDateTime = (ms) => {
     try {
@@ -40,54 +43,97 @@ const SolarHistory = ({ assetId = defaultAssetId }) => {
     }
   };
 
+  const toMetricValue = (v) => {
+    if (v != null && typeof v === 'object' && 'value' in v) return v.value;
+    return v;
+  };
+
+  const extractTimestampMs = (row) => {
+    const candidate =
+      row?.tsMs ??
+      row?.timestampMs ??
+      row?.timestamp ??
+      row?.ts ??
+      row?.time ??
+      row?.datetime ??
+      row?.V1?.timestamp ??
+      row?.P1?.timestamp ??
+      row?.I?.timestamp;
+
+    const n = Number(candidate);
+    if (!Number.isFinite(n) || n <= 0) return null;
+
+    // Heuristic: if it's in seconds (e.g. 1770804910), convert to ms.
+    return n < 1e12 ? n * 1000 : n;
+  };
+
   const fetchHistory = async () => {
-    setLoading(true);
-    setError(null);
+    const hasData = Array.isArray(dataRef.current) && dataRef.current.length > 0;
 
     try {
-      const raw = await fetchSolarHistory({ assetId });
+      if (!hasData) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+      setError(null);
+      const rows = await fetchSolarHistory({ assetId });
 
-      const normalized = raw
-        .map((row) => {
-          const tsSeconds = Number(row?.timestamp);
-          const tsMs = Number.isFinite(tsSeconds) ? tsSeconds * 1000 : Date.now();
+      if (!Array.isArray(rows)) {
+        throw new Error('Invalid API response: expected an array');
+      }
 
+      const normalized = rows
+        .map((r) => {
+          const tsMs = extractTimestampMs(r);
           return {
-            ...row,
-            V1: absNumber(row?.V1),
-            V2: absNumber(row?.V2),
-            V3: absNumber(row?.V3),
-            I: absNumber(row?.I),
-            P1: absNumber(row?.P1),
-            P2: absNumber(row?.P2),
-            P3: absNumber(row?.P3),
-            timestamp: tsSeconds,
+            ...r,
             tsMs,
-            timeLabel: new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            dateTimeLabel: formatDateTime(tsMs)
+            timeLabel: tsMs ? new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            dateTimeLabel: tsMs ? formatDateTime(tsMs) : '',
+            V1: absNumber(toMetricValue(r.V1)),
+            V2: absNumber(toMetricValue(r.V2)),
+            V3: absNumber(toMetricValue(r.V3)),
+            P1: absNumber(toMetricValue(r.P1)),
+            P2: absNumber(toMetricValue(r.P2)),
+            P3: absNumber(toMetricValue(r.P3)),
+            I: absNumber(toMetricValue(r.I)),
           };
         })
-        .sort((a, b) => a.tsMs - b.tsMs);
+        .sort((a, b) => Number(a.tsMs || 0) - Number(b.tsMs || 0));
 
+      dataRef.current = normalized;
       setData(normalized);
       setLastUpdated(new Date());
     } catch (e) {
-      setData([]);
+      if (!hasData) {
+        dataRef.current = [];
+        setData([]);
+      }
       setError(e?.message || 'Failed to fetch historical data');
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!didInitFetchRef.current) {
+    if (!isActive) {
+      prevActiveRef.current = false;
+      return undefined;
+    }
+
+    const becameActive = prevActiveRef.current === false;
+    prevActiveRef.current = true;
+
+    if (!didInitFetchRef.current || becameActive) {
       didInitFetchRef.current = true;
       fetchHistory();
     }
     const id = setInterval(fetchHistory, REFRESH_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId]);
+  }, [assetId, isActive]);
 
   const latest = useMemo(() => {
     if (!data || data.length === 0) return null;
@@ -157,6 +203,11 @@ const SolarHistory = ({ assetId = defaultAssetId }) => {
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {refreshing && (
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+              Refreshing…
+            </Typography>
+          )}
           <IconButton
             onClick={fetchHistory}
             sx={{ bgcolor: '#eef2ff', '&:hover': { bgcolor: '#e0e7ff' } }}
