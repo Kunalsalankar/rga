@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
-  Button,
-  ButtonGroup,
   Card,
   CardContent,
   Grid,
@@ -34,7 +32,6 @@ import {
 import { absNumber } from '../utils/numbers';
 
 const DashboardHome = () => {
-  const [timeRange, setTimeRange] = useState('1h');
   const [readingsData, setReadingsData] = useState(null);
   const [readingsError, setReadingsError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -54,19 +51,7 @@ const DashboardHome = () => {
     return raw;
   };
 
-  const rangeMs = useMemo(() => {
-    switch (timeRange) {
-      case '6h':
-        return 6 * 60 * 60 * 1000;
-      case '24h':
-        return 24 * 60 * 60 * 1000;
-      case '7d':
-        return 7 * 24 * 60 * 60 * 1000;
-      case '1h':
-      default:
-        return 60 * 60 * 1000;
-    }
-  }, [timeRange]);
+  const rangeMs = 60 * 60 * 1000;
 
   useEffect(() => {
     let cancelled = false;
@@ -255,25 +240,6 @@ const DashboardHome = () => {
         </Box>
 
         <Stack direction="row" spacing={1.25} alignItems="center">
-          <ButtonGroup variant="outlined" disableElevation sx={{ bgcolor: '#eef2ff', borderRadius: 2 }}>
-            {['1h', '6h', '24h', '7d'].map((r) => (
-              <Button
-                key={r}
-                onClick={() => setTimeRange(r)}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 2,
-                  fontWeight: 800,
-                  borderColor: 'transparent',
-                  ...(timeRange === r
-                    ? { bgcolor: '#e0e7ff' }
-                    : { bgcolor: 'transparent' })
-                }}
-              >
-                {r}
-              </Button>
-            ))}
-          </ButtonGroup>
           <IconButton sx={{ bgcolor: '#eef2ff', '&:hover': { bgcolor: '#e0e7ff' } }}>
             <Search fontSize="small" />
           </IconButton>

@@ -34,13 +34,74 @@ def _parse_float_csv(value: str, expected_len: int) -> np.ndarray:
     return np.array([float(p) for p in parts], dtype="float32")
 
 
-def preprocess_image(img: Image.Image) -> np.ndarray:
+def _env_flag(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip() not in ("0", "false", "FALSE", "no", "NO")
+
+
+def _env_int(name: str, default: int) -> int:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    try:
+        n = int(str(v).strip())
+        return n if n > 0 else default
+    except Exception:
+        return default
+
+
+def _letterbox_pil(img: Image.Image, size: int, fill: tuple[int, int, int]) -> Image.Image:
     img = img.convert("RGB")
-    img = img.resize((224, 224))
+    w, h = img.size
+    if w <= 0 or h <= 0:
+        return img.resize((size, size))
+
+    r = min(size / w, size / h)
+    new_w = max(1, int(round(w * r)))
+    new_h = max(1, int(round(h * r)))
+    resized = img.resize((new_w, new_h), resample=Image.BILINEAR)
+
+    canvas = Image.new("RGB", (size, size), fill)
+    left = (size - new_w) // 2
+    top = (size - new_h) // 2
+    canvas.paste(resized, (left, top))
+    return canvas
+
+
+def _clahe_rgb(arr01: np.ndarray) -> np.ndarray:
+    try:
+        import cv2  # type: ignore
+    except Exception:
+        return arr01
+
+    rgb_u8 = np.clip(arr01 * 255.0, 0, 255).astype(np.uint8)
+    lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clip_limit = float(os.getenv("ONNX_CLAHE_CLIP", "2.0"))
+    grid = _env_int("ONNX_CLAHE_GRID", 8)
+    clahe = cv2.createCLAHE(clipLimit=max(0.1, clip_limit), tileGridSize=(grid, grid))
+    l2 = clahe.apply(l)
+    lab2 = cv2.merge((l2, a, b))
+    rgb2 = cv2.cvtColor(lab2, cv2.COLOR_LAB2RGB)
+    return (rgb2.astype("float32") / 255.0).astype("float32")
+
+
+def preprocess_image(img: Image.Image) -> np.ndarray:
+    input_size = _env_int("ONNX_INPUT_SIZE", 224)
+    letterbox = _env_flag("ONNX_LETTERBOX", False)
+    fill_value = _env_int("ONNX_LETTERBOX_FILL", 114)
+    fill = (fill_value, fill_value, fill_value)
+
+    img = _letterbox_pil(img, input_size, fill) if letterbox else img.convert("RGB").resize((input_size, input_size))
 
     arr = np.asarray(img).astype("float32") / 255.0
 
-    normalize = os.getenv("ONNX_NORMALIZE", "1").strip() not in ("0", "false", "FALSE", "no", "NO")
+    if _env_flag("ONNX_CLAHE", False):
+        arr = _clahe_rgb(arr)
+
+    normalize = _env_flag("ONNX_NORMALIZE", False)
     if normalize:
         mean_env = os.getenv("ONNX_MEAN")
         std_env = os.getenv("ONNX_STD")
