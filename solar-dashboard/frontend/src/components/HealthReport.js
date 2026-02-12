@@ -2,44 +2,33 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   Alert,
   Box,
-  Breadcrumbs,
   Button,
   Chip,
   CircularProgress,
   Divider,
   Grid,
+  IconButton,
   LinearProgress,
-  Link,
   Paper,
   Table,
   TableBody,
   TableCell,
   TableRow,
+  Tooltip,
   Typography
 } from '@mui/material';
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer
-} from 'recharts';
-import {
+  Add,
   Build,
   CheckCircle,
   Download,
   ErrorOutline,
+  CenterFocusStrong,
   Info,
   Insights,
   LocationOn,
-  MenuBook,
   PhotoCamera,
-  TrendingUp,
+  Remove,
   WarningAmber
 } from '@mui/icons-material';
 import axios from 'axios';
@@ -58,6 +47,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
   const [weatherError, setWeatherError] = useState(null);
   const [imageTimestamp, setImageTimestamp] = useState(new Date().getTime());
   const [cameraError, setCameraError] = useState(null);
+  const [cameraZoom, setCameraZoom] = useState(1);
   const reportCacheRef = useRef(new Map());
 
   const cameraUrl = process.env.REACT_APP_ESP32_CAMERA_URL || 'http://10.86.72.244/';
@@ -259,7 +249,8 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
     const c = Number(confidence01);
     if (!Number.isFinite(c)) return undefined;
 
-    if (String(defect || '').toLowerCase() === 'clean') {
+    const d = String(defect ?? '').toLowerCase().trim();
+    if (!d || d === 'none' || d === 'clean') {
       return 95;
     }
 
@@ -273,7 +264,10 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
         location: reportData.location,
         last_updated: reportData.timestamp ? new Date(reportData.timestamp).toLocaleString() : new Date().toLocaleString(),
         current_health: {
-          condition: reportData.defect_analysis?.defect || reportData.current_health?.condition,
+          condition:
+            reportData.defect_analysis?.defect == null
+              ? 'Normal'
+              : (reportData.defect_analysis?.defect || reportData.current_health?.condition),
           health_score:
             reportData.current_health?.health_score ??
             deriveHealthScore({
@@ -300,7 +294,7 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
         },
         defect: reportData.defect_analysis
           ? {
-              type: reportData.defect_analysis?.defect,
+              type: reportData.defect_analysis?.defect == null ? 'None' : reportData.defect_analysis?.defect,
               confidence: absNumber(reportData.defect_analysis?.confidence || 0) * 100,
               affected_area: reportData.defect_analysis?.affected_area,
             }
@@ -324,7 +318,11 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
     current_health: {
       ...fallback.current_health,
       ...(mapped?.current_health || {}),
-      ...(readingsMapped?.current_health || {})
+      ...(readingsMapped?.current_health || {}),
+      temperature_c:
+        weatherData?.temperature_c != null
+          ? absNumber(weatherData.temperature_c)
+          : fallback.current_health.temperature_c,
     },
     defect: {
       ...fallback.defect,
@@ -364,6 +362,9 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
 
   const showData = reportData ? data : fallback;
   const showHealthScore = Number(showData.current_health.health_score || 0);
+  const showConfidencePct = absNumber(showData?.defect?.confidence || 0);
+  const confidenceColor =
+    showConfidencePct >= 90 ? '#16a34a' : showConfidencePct >= 70 ? '#f59e0b' : '#ef4444';
   const showStatus =
     showHealthScore >= 90
       ? { label: 'HEALTHY', color: '#22c55e', icon: CheckCircle }
@@ -480,18 +481,93 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
     []
   );
 
+  const pickMarkdownSection = (md, titles) => {
+    if (!md) return null;
+    const t = new Set((titles || []).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean));
+    const lines = String(md).replace(/\r\n/g, '\n').split('\n');
+
+    const isHeading = (line) => /^#{1,6}\s+/.test(line);
+    const headingLevel = (line) => (line.match(/^#{1,6}/)?.[0]?.length || 0);
+    const headingTitle = (line) => String(line.replace(/^#{1,6}\s+/, '')).trim().toLowerCase();
+
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (!isHeading(line)) continue;
+      if (!t.has(headingTitle(line))) continue;
+
+      const level = headingLevel(line);
+      const start = i;
+      let end = lines.length;
+      for (let j = i + 1; j < lines.length; j += 1) {
+        if (!isHeading(lines[j])) continue;
+        if (headingLevel(lines[j]) <= level) {
+          end = j;
+          break;
+        }
+      }
+      const chunk = lines.slice(start, end).join('\n').trim();
+      return chunk || null;
+    }
+
+    return null;
+  };
+
+  const truncateMarkdownLines = (md, maxLines = 14) => {
+    if (!md) return md;
+    const lines = String(md).replace(/\r\n/g, '\n').split('\n');
+    if (lines.length <= maxLines) return md;
+    return `${lines.slice(0, maxLines).join('\n').trim()}\n\n...`;
+  };
+
+  const sanitizeSummaryMarkdown = (md) => {
+    if (!md) return md;
+    const defectType = String(showData?.defect?.type || '').trim().toLowerCase();
+    const hasNoDefect = defectType === 'none' || defectType === '';
+    if (!hasNoDefect) return md;
+
+    const s = String(md);
+    // Replace the Summary table cell for Defect Detected when Gemini still returns "Clean".
+    // Expected row: | **Defect Detected** | Clean |
+    return s.replace(
+      /\|\s*\*\*Defect Detected\*\*\s*\|\s*clean\s*\|/gi,
+      '| **Defect Detected** | None |'
+    );
+  };
+
+  const summaryMarkdown = pickMarkdownSection(aiRecommendationMarkdown, ['summary']);
+  const rootCauseMarkdown = pickMarkdownSection(aiRecommendationMarkdown, ['root cause analysis', 'root cause']);
+  const recommendationsMarkdown = pickMarkdownSection(aiRecommendationMarkdown, [
+    'recommendations',
+    'recommended actions',
+    'recommended action',
+  ]);
+
+  const summaryMarkdownDisplay = sanitizeSummaryMarkdown(summaryMarkdown || aiRecommendationMarkdown);
+
+  const containsKbNotFound = /not\s+found\s+in\s+retrieved\s+knowledge/i.test(
+    String(aiRecommendationMarkdown || '')
+  );
+
+  const defaultRootCause = `## Root Cause Analysis\n\n- Possible cause: soiling or partial shading\n- Possible cause: temporary mismatch due to temperature variation\n- Possible cause: connector/diode issue causing localized losses`;
+
+  const defaultRecommendationsClean = `## Recommendations\n\n- Continue monitoring for 24 hours\n- Schedule routine cleaning if dust is visible\n- Re-scan after next peak sun window`;
+
+  const defaultRecommendationsIssue = `## Recommendations\n\n- Inspect panel surface for dust/soiling and clean if needed\n- Check connectors and junction box for heating/loose contact\n- Re-scan and compare confidence after maintenance`;
+
+  const isClean = String(showData?.defect?.type || showData?.current_health?.condition || '')
+    .toLowerCase()
+    .includes('clean');
+
+  const recommendationsBase = recommendationsMarkdown || aiRecommendationMarkdown;
+  const recommendationsShort = truncateMarkdownLines(
+    containsKbNotFound
+      ? (isClean ? defaultRecommendationsClean : defaultRecommendationsIssue)
+      : recommendationsBase,
+    16
+  );
+
   return (
     <Box>
-      <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2, color: 'text.secondary' }}>
-        <Link underline="hover" color="inherit" href="#">
-          Home
-        </Link>
-        <Link underline="hover" color="inherit" href="#">
-          Solar Plant Alpha
-        </Link>
-        <Typography color="text.primary">Panel Health Report</Typography>
-      </Breadcrumbs>
-
       <Paper elevation={0} sx={{ p: 2, mb: 2, borderRadius: 2, border: '1px solid #eaeaea' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box>
@@ -701,160 +777,239 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
               <MetricCard title="CURRENT (ISC)" value={absNumber(showData.current_health.current_isc).toFixed(1)} unit="A" color="#22c55e" />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="TEMPERATURE" value={absNumber(showData.current_health.temperature_c).toFixed(1)} unit="°C" color="#f59e0b" />
+              <MetricCard
+                title="TEMPERATURE"
+                value={
+                  weatherData?.temperature_c != null
+                    ? absNumber(weatherData.temperature_c).toFixed(1)
+                    : absNumber(showData.current_health.temperature_c).toFixed(1)
+                }
+                unit="°C"
+                color="#f59e0b"
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <MetricCard title="EFFICIENCY" value={absNumber(showData.current_health.efficiency_percent).toFixed(1)} unit="%" color="#ef4444" />
             </Grid>
           </Grid>
 
-          {reportData && (
+          {reportData && (summaryMarkdown || recommendationsMarkdown || aiRecommendationMarkdown) && (
+            <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <Insights sx={{ color: '#22c55e' }} />
+                <Typography fontWeight={900}>AI Summary</Typography>
+              </Box>
+
+              <Box sx={{ color: 'text.secondary' }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {summaryMarkdownDisplay}
+                </ReactMarkdown>
+              </Box>
+            </Paper>
+          )}
+
+          {reportData && (recommendationsMarkdown || aiRecommendationMarkdown) && (
             <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <CheckCircle sx={{ color: '#22c55e' }} />
-                <Typography fontWeight={900}>Recommended Actions</Typography>
+                <Typography fontWeight={900}>Recommendations</Typography>
               </Box>
-              <Box sx={{ display: 'grid', gap: 1.25 }}>
-                {showData.recommended_actions.map((a) => (
-                  <Paper
-                    key={a.title}
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      borderRadius: 2,
-                      border: '1px solid #eaeaea',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 2
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', gap: 1.5 }}>
-                      <Box sx={{ width: 4, borderRadius: 10, bgcolor: a.color }} />
-                      <Box>
-                        <Typography fontWeight={900}>{a.title}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {a.desc}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Chip
-                      label={`PRIORITY: ${a.priority.toUpperCase()}`}
-                      size="small"
-                      sx={{ bgcolor: `${a.color}15`, color: a.color, fontWeight: 900 }}
-                    />
-                  </Paper>
-                ))}
+
+              <Box sx={{ color: 'text.secondary' }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {recommendationsShort}
+                </ReactMarkdown>
               </Box>
             </Paper>
           )}
         </Grid>
 
         <Grid item xs={12} md={6}>
-          {reportData && (
-            <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <TrendingUp sx={{ color: '#22c55e' }} />
-                <Typography fontWeight={900}>Electrical Curves (I-V & P-V)</Typography>
-              </Box>
-
-              <Box sx={{ height: 220 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={showData.curves} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="v" stroke="#666" label={{ value: 'Voltage (V)', position: 'insideBottomRight', offset: -5 }} />
-                    <YAxis stroke="#666" label={{ value: 'Current (A)', angle: -90, position: 'insideLeft' }} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="i_actual" name="Actual" stroke="#22c55e" strokeWidth={3} dot={false} />
-                    <Line type="monotone" dataKey="i_ref" name="Reference" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Box>
-            </Paper>
-          )}
-
           <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <PhotoCamera sx={{ color: '#22c55e' }} />
               <Typography fontWeight={900}>AI Visual Inspection</Typography>
             </Box>
 
-            <Box
-              sx={{
-                position: 'relative',
-                height: 210,
-                borderRadius: 2,
-                overflow: 'hidden',
-                bgcolor: '#0f172a',
-                backgroundImage:
-                  'linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(59,130,246,0.08) 55%, rgba(15,23,42,0.25) 100%)'
-              }}
-            >
-              {cameraError && (
-                <Alert severity="warning" sx={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 2 }}>
-                  {cameraError}
-                </Alert>
-              )}
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={8}>
+                <Box
+                  sx={{
+                    position: 'relative',
+                    height: { xs: 260, md: 360 },
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    bgcolor: '#0b1220',
+                    border: '1px solid #0f172a',
+                    backgroundImage:
+                      'linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(59,130,246,0.08) 55%, rgba(15,23,42,0.35) 100%)'
+                  }}
+                >
+                  {cameraError && (
+                    <Alert severity="warning" sx={{ position: 'absolute', top: 10, left: 10, right: 10, zIndex: 3 }}>
+                      {cameraError}
+                    </Alert>
+                  )}
 
-              <img
-                src={`/api/camera/feed?url=${encodeURIComponent(cameraUrl)}&t=${imageTimestamp}`}
-                alt="AI visual inspection"
-                onError={() => setCameraError('Camera feed not available. Showing fallback image.')}
-                onLoad={() => setCameraError(null)}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  opacity: 0.92
-                }}
-              />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 12,
+                      right: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                      zIndex: 4,
+                    }}
+                  >
+                    <Tooltip title="Zoom in">
+                      <IconButton
+                        size="small"
+                        onClick={() => setCameraZoom((z) => Math.min(2.5, Number(z || 1) + 0.25))}
+                        sx={{ bgcolor: 'rgba(255,255,255,0.92)', border: '1px solid #eaeaea' }}
+                      >
+                        <Add fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Zoom out">
+                      <IconButton
+                        size="small"
+                        onClick={() => setCameraZoom((z) => Math.max(1, Number(z || 1) - 0.25))}
+                        sx={{ bgcolor: 'rgba(255,255,255,0.92)', border: '1px solid #eaeaea' }}
+                      >
+                        <Remove fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Reset zoom">
+                      <IconButton
+                        size="small"
+                        onClick={() => setCameraZoom(1)}
+                        sx={{ bgcolor: 'rgba(255,255,255,0.92)', border: '1px solid #eaeaea' }}
+                      >
+                        <CenterFocusStrong fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
 
-              <Box
-                sx={{
-                  position: 'absolute',
-                  inset: 0,
-                  background:
-                    'repeating-linear-gradient(0deg, rgba(255,255,255,0.05), rgba(255,255,255,0.05) 1px, transparent 1px, transparent 18px), repeating-linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.05) 1px, transparent 1px, transparent 18px)'
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  left: '36%',
-                  top: '28%',
-                  width: '28%',
-                  height: '42%',
-                  border: '2px dashed #22c55e',
-                  borderRadius: 1
-                }}
-              />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      transform: `scale(${cameraZoom})`,
+                      transformOrigin: 'center center',
+                      transition: 'transform 120ms ease-out',
+                    }}
+                  >
+                    <img
+                      src={`/api/camera/feed?url=${encodeURIComponent(cameraUrl)}&t=${imageTimestamp}`}
+                      alt="AI visual inspection"
+                      onError={() => setCameraError('Camera feed not available. Showing fallback image.')}
+                      onLoad={() => setCameraError(null)}
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        opacity: 0.98,
+                      }}
+                    />
+                  </Box>
 
-              <Box
-                sx={{
-                  position: 'absolute',
-                  left: 14,
-                  bottom: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  bgcolor: 'rgba(0,0,0,0.35)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 2
-                }}
-              >
-                <Typography variant="caption" sx={{ color: '#e2e8f0' }}>
-                  Defect Type: <span style={{ fontWeight: 900 }}>{showData.defect.type}</span>
-                </Typography>
-                <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
-                <Typography variant="caption" sx={{ color: '#86efac', fontWeight: 900 }}>
-                  Confidence: {absNumber(showData.defect.confidence).toFixed(1)}%
-                </Typography>
-              </Box>
-            </Box>
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      pointerEvents: 'none',
+                      background:
+                        'repeating-linear-gradient(0deg, rgba(255,255,255,0.04), rgba(255,255,255,0.04) 1px, transparent 1px, transparent 18px), repeating-linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.04) 1px, transparent 1px, transparent 18px)'
+                    }}
+                  />
+
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: '34%',
+                      top: '28%',
+                      width: '30%',
+                      height: '42%',
+                      border: '2px solid rgba(239, 68, 68, 0.85)',
+                      borderRadius: 1.5,
+                      pointerEvents: 'none',
+                    }}
+                  />
+
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: 12,
+                      bottom: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.25,
+                      bgcolor: 'rgba(2,6,23,0.55)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      px: 1.25,
+                      py: 0.85,
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: '#e2e8f0' }}>
+                      Panel: <span style={{ fontWeight: 900 }}>{showData.panel_id}</span>
+                    </Typography>
+                    <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+                    <Typography variant="caption" sx={{ color: '#a7f3d0', fontWeight: 900 }}>
+                      {cameraError ? 'Fallback image' : 'Live feed'}
+                    </Typography>
+                    <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+                    <Typography variant="caption" sx={{ color: '#cbd5e1' }}>
+                      Zoom: <span style={{ fontWeight: 900 }}>{cameraZoom.toFixed(2)}x</span>
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Paper elevation={0} sx={{ p: 2.25, borderRadius: 2, border: '1px solid #eaeaea', height: '100%' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.75 }}>
+                    <Typography fontWeight={900}>
+                      AI Diagnosis
+                    </Typography>
+                  </Box>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    DEFECT TYPE
+                  </Typography>
+                  <Typography fontWeight={900} sx={{ mb: 1.25 }}>
+                    {String(showData?.defect?.type || showData?.current_health?.condition || '—')}
+                  </Typography>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    CONFIDENCE
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={Math.max(0, Math.min(100, showConfidencePct))}
+                      sx={{
+                        flex: 1,
+                        height: 8,
+                        borderRadius: 10,
+                        bgcolor: '#eef2f7',
+                        '& .MuiLinearProgress-bar': { bgcolor: confidenceColor },
+                      }}
+                    />
+                    <Typography fontWeight={900} sx={{ minWidth: 56, textAlign: 'right' }}>
+                      {showConfidencePct.toFixed(1)}%
+                    </Typography>
+                  </Box>
+
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2, lineHeight: 1.7 }}>
+                    Use the Recommendations section to take action.
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
           </Paper>
 
           {reportData && (
@@ -869,92 +1024,16 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                 sx={{ mb: 1.25, bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 900 }}
               />
               <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.8 }}>
-                {showData.root_cause}
+                {rootCauseMarkdown ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {rootCauseMarkdown}
+                  </ReactMarkdown>
+                ) : (
+                  showData.root_cause
+                )}
               </Typography>
             </Paper>
           )}
-
-          {aiRecommendationMarkdown && (
-            <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Insights sx={{ color: '#22c55e' }} />
-                <Typography fontWeight={900}>AI Recommendation (Gemini + RAG)</Typography>
-              </Box>
-              <Box sx={{ color: 'text.secondary' }}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {aiRecommendationMarkdown}
-                </ReactMarkdown>
-              </Box>
-            </Paper>
-          )}
-
-          {ragContextMarkdown && (
-            <Paper elevation={0} sx={{ p: 2.5, mt: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <MenuBook sx={{ color: '#22c55e' }} />
-                <Typography fontWeight={900}>Retrieved Context (RAG)</Typography>
-              </Box>
-              <Box sx={{ color: 'text.secondary', maxHeight: 260, overflowY: 'auto' }}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {ragContextMarkdown}
-                </ReactMarkdown>
-              </Box>
-            </Paper>
-          )}
-        </Grid>
-
-        <Grid item xs={12}>
-          <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <ShowStatusIcon sx={{ color: showStatus.color }} />
-              <Typography fontWeight={900}>Automation Status</Typography>
-            </Box>
-
-            <Grid container spacing={2}>
-              {showData.automation.map((a) => (
-                <Grid item xs={12} md={4} key={a.title}>
-                  <Paper elevation={0} sx={{ p: 2, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #eaeaea' }}>
-                    <Typography fontWeight={900} sx={{ mb: 0.5 }}>
-                      {a.title}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {a.desc}
-                    </Typography>
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12}>
-          <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #eaeaea' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <TrendingUp sx={{ color: '#22c55e' }} />
-              <Typography fontWeight={900}>Historical Data & Comparison (Static)</Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Sample power output trend for the plant. This will be replaced with real history once connected.
-            </Typography>
-
-            <Box sx={{ height: 260 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={showData.powerTrend} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="healthPower" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
-                      <stop offset="100%" stopColor="#22c55e" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="time" stroke="#666" />
-                  <YAxis stroke="#666" />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="mw" name="Plant Power (MW)" stroke="#22c55e" strokeWidth={3} fill="url(#healthPower)" dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </Box>
-          </Paper>
         </Grid>
       </Grid>
     </Box>

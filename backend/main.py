@@ -42,6 +42,9 @@ def _get_gemini_cooldown_seconds() -> int:
 
 _GEMINI_CACHE: dict[str, dict[str, Any]] = {}
 
+# Simple in-memory cache for weather responses
+_WEATHER_CACHE: dict[str, dict[str, Any]] = {}
+
 @dataclass(frozen=True)
 class GeminiRateLimit(Exception):
     retry_after_seconds: float
@@ -137,6 +140,14 @@ def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
     
     defect_info = defect_contexts.get(fault, {})
     urgency_level = _determine_urgency(fault, confidence, defect_info)
+
+    fault_l = str(fault or "").strip().lower()
+    if fault_l == "clean" and float(confidence or 0) >= 0.9:
+        action_required = "Monitor"
+    elif "critical" in urgency_level.lower() or "electrical" in fault_l or "physical" in fault_l:
+        action_required = "Immediate maintenance"
+    else:
+        action_required = "Inspect & maintain"
     
     return (
         "You are an expert solar PV operations assistant specialized in defect identification and technician guidance.\n"
@@ -147,8 +158,9 @@ def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
         "YOUR TASK:\n"
         "1. Analyze the detected defect using the retrieved solar panel knowledge base\n"
         "2. Determine severity, impact, and required actions\n"
-        "3. Use ONLY facts from the retrieved knowledge - do NOT invent procedures\n"
-        "4. If critical information is missing, explicitly state 'Not found in retrieved knowledge'\n"
+        "3. Prefer facts from retrieved knowledge when available.\n"
+        "4. If the knowledge base does not contain enough specifics, provide SAFE, generic best-practice guidance instead of writing 'Not found in retrieved knowledge'.\n"
+        "5. If defect is 'Clean' and confidence is high, keep it very short and focus on monitoring and routine maintenance.\n"
         "\n"
         "DEFECT-SPECIFIC CONTEXT:\n"
         "- Defect: " + fault + "\n"
@@ -159,7 +171,7 @@ def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
         "\n"
         "OUTPUT FORMAT (STRICTLY FOLLOW):\n"
         "Use GitHub-flavored Markdown. No preamble, no greeting, no emojis.\n"
-        "Section headings must be exactly as shown. Use bullet points for details.\n"
+        "Section headings must be exactly as shown. Keep it SHORT and actionable.\n"
         "\n"
         "## Summary\n"
         "| Field | Value |\n"
@@ -168,77 +180,16 @@ def build_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
         "| **Defect Detected** | " + fault + " |\n"
         "| **Model Confidence** | {:.1%} |\n".format(confidence) +
         "| **Urgency Level** | " + urgency_level + " |\n"
-        "| **Action Required** | See immediate actions below |\n"
+        "| **Action Required** | " + action_required + " |\n"
         "\n"
-        "## 1) Defect Analysis\n"
-        "### What this defect means:\n"
-        "Explain in simple technical language:\n"
-        "- Physical description of the defect\n"
-        "- Why it occurs on solar panels\n"
-        "- Immediate impacts on power generation\n"
-        "- Secondary risks (if any)\n"
+        "## Root Cause Analysis\n"
+        "Write 2-4 short bullet points explaining the most likely cause.\n"
+        "If the knowledge base does not contain enough specifics, write generic but safe causes (e.g., soiling, shading, mismatch, connector issues) and label them as 'Possible causes'.\n"
         "\n"
-        "### Expected Power Impact:\n"
-        "- Primary impact (e.g., power loss %, performance ratio drop)\n"
-        "- Timeline of degradation\n"
-        "- Risk of escalation without intervention\n"
-        "\n"
-        "## 2) Safety Assessment\n"
-        "### Immediate Safety Concerns:\n"
-        "- Electrical hazard risk (High/Medium/Low/None)\n"
-        "- Environmental hazard risk (e.g., thermal shock, avalanche)\n"
-        "- Technician safety requirements and PPE\n"
-        "- Isolation requirements (if applicable)\n"
-        "\n"
-        "## 3) Immediate Actions (First 15-30 Minutes)\n"
-        "### Do FIRST:\n"
-        "1. [First safety/assessment step]\n"
-        "2. [Safety isolation/notification if required]\n"
-        "3. [Initial visual confirmation]\n"
-        "4. [Who to notify and escalation path]\n"
-        "5. [Critical next steps]\n"
-        "\n"
-        "### DO NOT:\n"
-        "- [List any warnings about incorrect procedures]\n"
-        "- [Safety violations to avoid]\n"
-        "\n"
-        "## 4) Maintenance Procedure (SOP-Based)\n"
-        "### Required Equipment & Materials:\n"
-        "- [Tools needed]\n"
-        "- [Safety equipment]\n"
-        "- [Consumables]\n"
-        "\n"
-        "### Step-by-Step Procedure:\n"
-        "1. [Preparation step]\n"
-        "2. [Main procedure step]\n"
-        "3. [Verification step]\n"
-        "[Continue with actual SOP steps from knowledge base]\n"
-        "\n"
-        "### Post-Action Verification:\n"
-        "- Visual inspection checklist\n"
-        "- Performance testing requirements\n"
-        "- Success criteria\n"
-        "\n"
-        "## 5) Documentation & Follow-up\n"
-        "### Required Documentation:\n"
-        "- Panel ID, defect type, severity\n"
-        "- Date/time of detection and action\n"
-        "- Technician name and credentials\n"
-        "- Before/after photos (if applicable)\n"
-        "- Performance metrics post-repair\n"
-        "\n"
-        "### Follow-up Schedule:\n"
-        "- Next inspection date\n"
-        "- Monitoring frequency\n"
-        "- Performance baseline to track\n"
-        "- Escalation triggers for re-inspection\n"
-        "\n"
-        "## 6) Information Needed for Final Decision\n"
-        "### On-site confirmation required:\n"
-        "- [Specific measurements or observations needed]\n"
-        "- [Environmental factors to verify]\n"
-        "- [Performance data to collect]\n"
-        "- [Risk factors to assess]\n"
+        "## Recommendations\n"
+        "Write 3-6 short bullet points of actions (simple and practical).\n"
+        "No long explanations. No SOP steps. No extra sections.\n"
+        "Do not output the phrase 'Not found in retrieved knowledge'.\n"
         "\n"
         "---\n\n"
         "RETRIEVED KNOWLEDGE BASE (Use these facts only):\n"
@@ -640,6 +591,12 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
             print(f"✅ Inference complete: {fault} (confidence: {confidence:.1%})")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"ONNX inference failed: {e}")
+
+        fault_display: str | None
+        if str(fault or "").strip().lower() == "clean":
+            fault_display = None
+        else:
+            fault_display = str(fault)
         
         model_output = {
             "primary_defect": fault,
@@ -714,7 +671,7 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
             
             # AI defect analysis
             "defect_analysis": {
-                "defect": fault,
+                "defect": fault_display,
                 "confidence": float(confidence),
                 "top_predictions": top
             },
@@ -766,3 +723,51 @@ def diagnostic():
     }
     
     return diagnostics
+
+
+@app.get("/api/weather/wardha")
+def get_wardha_weather():
+    api_key = (os.getenv("OPENWEATHER_API_KEY") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENWEATHER_API_KEY is not set")
+
+    cache_key = "wardha"
+    now = time.time()
+    cached = _WEATHER_CACHE.get(cache_key)
+    if cached and (now - float(cached.get("ts", 0))) < 60:
+        return cached.get("data")
+
+    lat = float(os.getenv("WARDHA_LAT", "20.7453") or "20.7453")
+    lon = float(os.getenv("WARDHA_LON", "78.6022") or "78.6022")
+
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    try:
+        r = requests.get(
+            url,
+            params={
+                "lat": lat,
+                "lon": lon,
+                "appid": api_key,
+                "units": "metric",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        payload = r.json() or {}
+
+        main = payload.get("main") or {}
+        weather_list = payload.get("weather") or []
+        w0 = weather_list[0] if isinstance(weather_list, list) and weather_list else {}
+
+        data = {
+            "city": (payload.get("name") or "Wardha"),
+            "condition": (w0.get("description") or w0.get("main") or "—"),
+            "temperature_c": main.get("temp"),
+            "humidity_percent": main.get("humidity"),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        _WEATHER_CACHE[cache_key] = {"ts": now, "data": data}
+        return data
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"OpenWeather request failed: {e}")
