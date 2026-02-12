@@ -103,6 +103,8 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
       }
     };
 
+    fetchHealthReport();
+
     return () => {
       cancelled = true;
     };

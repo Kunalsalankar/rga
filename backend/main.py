@@ -375,6 +375,47 @@ def _esp32_candidate_urls(url: str) -> list[str]:
         candidates.append(base_slash)
     return candidates
 
+
+@app.get("/api/camera/feed")
+def camera_feed(url: str = Query("")):
+    """Proxy endpoint to fetch a single image from ESP32-CAM for the frontend.
+
+    The frontend uses this to avoid mixed-content/CORS issues when loading images.
+    """
+    target = (url or "").strip() or _get_esp32_cam_url()
+
+    timeout_s = float(os.getenv("ESP32_TIMEOUT_SECONDS", "5") or "5")
+    last_error: Exception | None = None
+
+    for candidate in _esp32_candidate_urls(target):
+        try:
+            print(f"📷 Camera feed fetch: {candidate}")
+            r = requests.get(candidate, timeout=timeout_s)
+            r.raise_for_status()
+
+            content_type = (r.headers.get("content-type") or "").lower()
+            body = r.content or b""
+            is_jpeg = body.startswith(b"\xff\xd8\xff")
+            is_png = body.startswith(b"\x89PNG\r\n\x1a\n")
+
+            if not ("image/" in content_type or is_jpeg or is_png):
+                raise requests.exceptions.RequestException(
+                    f"Camera response is not an image (content-type={content_type or 'unknown'}, size={len(body)})"
+                )
+
+            media_type = content_type if "image/" in content_type else ("image/png" if is_png else "image/jpeg")
+            return Response(content=body, media_type=media_type)
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            continue
+
+    # Fall back to the same fallback image used by analysis
+    print(f"⚠️  Camera feed unavailable: {last_error}")
+    if FALLBACK_IMAGE_PATH.exists():
+        return Response(content=FALLBACK_IMAGE_PATH.read_bytes(), media_type="image/png")
+
+    raise HTTPException(status_code=503, detail="Camera feed unavailable and fallback image missing")
+
 def _get_esp32_image() -> bytes:
     """Try to get image from ESP32, fallback to image.png if unavailable"""
     last_error: Exception | None = None
@@ -576,7 +617,7 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
         
         print(f"🚨 ALERT: V1 ({v1_value}V) > 4V - ANALYSIS TRIGGERED!")
         
-        # Step 3: Capture image
+        # Step 2: Capture image
         print("\n📸 Step 2: Capturing image...")
         image_bytes = _get_esp32_image()
         
@@ -589,7 +630,7 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
         
         print(f"✅ Image saved: {filename}")
         
-        # Step 4: ONNX inference
+        # Step 3: ONNX inference
         print("\n🤖 Step 3: Running ONNX model inference...")
         if not Path(MODEL_PATH).exists():
             raise HTTPException(status_code=500, detail=f"ONNX model not found at: {MODEL_PATH}")
@@ -607,7 +648,7 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
             "panel_id": panel_id
         }
         
-        # Step 5: RAG retrieval
+        # Step 4: RAG retrieval
         print("\n📚 Step 4: Retrieving context from knowledge base...")
         rag_query, rag_context = retrieve_context_from_model_output(store=store, model_output=model_output, k=3)
         
@@ -616,7 +657,7 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
         
         print(f"✅ Retrieved {len(rag_context)} characters of context")
         
-        # Step 6: Gemini AI recommendation
+        # Step 5: Gemini AI recommendation
         print("\n🤖 Step 5: Generating AI health report via Gemini...")
         now = time.time()
         cached = _GEMINI_CACHE.get(panel_id)
@@ -646,7 +687,6 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
                 "gemini_error": gemini_error,
             }
         
-        # Step 7: Return complete report
         print(f"\n{'='*60}")
         print(f"✅ ANALYSIS COMPLETE FOR PANEL: {panel_id}")
         print(f"{'='*60}\n")
