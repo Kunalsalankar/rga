@@ -91,7 +91,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   const calculateSummary = () => {
     const p1 = absNumber(panelData?.P1?.value || 0);
     const p3 = absNumber(panelData?.P3?.value || 0);
-    const totalOutput = p1 + p1 + p3;
+    const totalOutput = p1 + p3;
 
     const classify = (p) => {
       const ap = Math.abs(Number(p) || 0);
@@ -99,10 +99,10 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
       if (ap >= 1) return 'warning';
       return 'critical';
     };
-    const classes = [classify(p1), classify(p1), classify(p3)];
+    const classes = [classify(p1), classify(p3)];
     const healthyCount = classes.filter((c) => c === 'healthy').length;
     const unhealthyCount = classes.filter((c) => c === 'critical').length;
-    const averageHealth = ((healthyCount / 3) * 100).toFixed(0);
+    const averageHealth = ((healthyCount / 2) * 100).toFixed(0);
 
     return { totalOutput: trunc2(totalOutput).toFixed(2), totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
   };
@@ -142,9 +142,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   };
 
   const summary = calculateSummary();
-  const efficiency = summary.totalCapacity && summary.totalCapacity !== '—'
-    ? ((summary.totalOutput / summary.totalCapacity) * 100).toFixed(1)
-    : summary.averageHealth;
+  const efficiency = summary.averageHealth;
 
   const SummaryCard = ({ icon, title, value, unit, color, subtitle }) => (
     <Paper
@@ -229,17 +227,27 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
     const sensorData = getPanelSensorData();
 
+    const status = Math.abs(sensorData.power) >= 5 ? 'active' : Math.abs(sensorData.power) >= 1 ? 'warning' : 'defect';
+    const statusMeta =
+      status === 'active'
+        ? { label: 'Active', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', icon: <CheckCircle sx={{ color: '#16a34a', fontSize: 24 }} /> }
+        : status === 'warning'
+          ? { label: 'Warning', color: '#b45309', bg: '#fffbeb', border: '#fcd34d', icon: <CheckCircle sx={{ color: '#f59e0b', fontSize: 24 }} /> }
+          : { label: 'Defect', color: '#b91c1c', bg: '#fef2f2', border: '#fca5a5', icon: <ErrorOutline sx={{ color: '#ef4444', fontSize: 24 }} /> };
+
     return (
       <Paper
         sx={{
           p: 2,
           height: '100%',
           borderRadius: 2,
-          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+          boxShadow: '0 4px 10px rgba(15, 23, 42, 0.06)',
+          bgcolor: statusMeta.bg,
+          border: `1px solid ${statusMeta.border}`,
           transition: 'transform 0.3s, box-shadow 0.3s, cursor 0.3s',
           '&:hover': {
             transform: 'translateY(-4px)',
-            boxShadow: '0 8px 12px rgba(0,0,0,0.15)',
+            boxShadow: '0 10px 18px rgba(15, 23, 42, 0.10)',
             cursor: 'pointer'
           }
         }}
@@ -260,17 +268,30 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
               {panel.location}
             </Typography>
           </Box>
-          {Math.abs(sensorData.power) >= 5 ? (
-            <CheckCircle sx={{ color: '#4caf50', fontSize: 24 }} />
-          ) : Math.abs(sensorData.power) >= 1 ? (
-            <CheckCircle sx={{ color: '#ff9800', fontSize: 24 }} />
-          ) : (
-            <ErrorOutline sx={{ color: '#f44336', fontSize: 24 }} />
-          )}
+          {statusMeta.icon}
+        </Box>
+
+        <Box
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 0.75,
+            px: 1.25,
+            py: 0.5,
+            borderRadius: 999,
+            bgcolor: '#ffffffcc',
+            border: `1px solid ${statusMeta.border}`,
+            mb: 1.75
+          }}
+        >
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: statusMeta.color }} />
+          <Typography variant="caption" fontWeight={800} sx={{ color: statusMeta.color }}>
+            {statusMeta.label}
+          </Typography>
         </Box>
 
         {/* Show Individual Panel AWS Sensor Data */}
-        <Box sx={{ mb: 2, bgcolor: '#f9f9f9', p: 1.5, borderRadius: 1, border: '1px solid #e0e0e0' }}>
+        <Box sx={{ mb: 2, bgcolor: '#fff', p: 1.5, borderRadius: 1.5, border: '1px solid #e5e7eb' }}>
           <Box display="flex" justifyContent="space-between" mb={1.5}>
             <Typography variant="body2" fontWeight="500">⚡ Voltage</Typography>
             <Box>
@@ -293,7 +314,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
               <Typography 
                 variant="body2" 
                 fontWeight="bold" 
-                color={sensorData.power >= 0 ? '#ff9800' : '#f44336'}
+                color={statusMeta.color}
                 sx={{ fontSize: '1rem' }}
               >
                 {sensorData.power.toFixed(4)}W
@@ -375,52 +396,6 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Summary Dashboard */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h5" fontWeight="bold" mb={3}>
-          📊 System Overview
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6} md={3}>
-            <SummaryCard
-              icon={<Bolt sx={{ fontSize: 28 }} />}
-              title="Total Output"
-              value={summary.totalOutput}
-              unit="W"
-              color="#ff9800"
-              subtitle={summary.totalCapacity ? `of ${summary.totalCapacity}W capacity` : null}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <SummaryCard
-              icon={<TrendingUp sx={{ fontSize: 28 }} />}
-              title="System Efficiency"
-              value={efficiency}
-              unit="%"
-              color="#2196f3"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <SummaryCard
-              icon={<CheckCircle sx={{ fontSize: 28 }} />}
-              title="Healthy Panels"
-              value={summary.healthyCount}
-              unit={`of ${panels.length}`}
-              color="#4caf50"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <SummaryCard
-              icon={<ErrorOutline sx={{ fontSize: 28 }} />}
-              title="Unhealthy Panels"
-              value={summary.unhealthyCount}
-              unit={`Avg: ${summary.averageHealth}%`}
-              color="#f44336"
-            />
-          </Grid>
-        </Grid>
-      </Box>
-
       {/* Solar Panels Grid */}
       <Box>
         <Typography variant="h5" gutterBottom fontWeight="bold" mb={3}>

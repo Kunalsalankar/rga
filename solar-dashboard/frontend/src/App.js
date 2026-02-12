@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   AppBar,
   Avatar,
@@ -13,14 +13,12 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Snackbar,
   Toolbar,
   ThemeProvider,
   createTheme,
   Typography,
   Button
 } from '@mui/material';
-import Alert from '@mui/material/Alert';
 import {
   Bolt,
   Build,
@@ -29,8 +27,6 @@ import {
   Insights,
   NotificationsNone,
   Search,
-  Settings,
-  ShowChart,
   Visibility
 } from '@mui/icons-material';
 import SolarPanelGrid from './components/SolarPanelGrid';
@@ -78,9 +74,16 @@ function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [mountedPages, setMountedPages] = useState({ dashboard: true });
   const [selectedPanel, setSelectedPanel] = useState(null);
-  const [lastAutoNavTs, setLastAutoNavTs] = useState(0);
-  const [faultBannerOpen, setFaultBannerOpen] = useState(false);
-  const [faultBannerValue, setFaultBannerValue] = useState(null);
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+    { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
+    { id: 'solar-history', label: 'Solar History', icon: <Insights /> },
+    { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
+    { id: 'maintenance', label: 'Maintenance', icon: <Build /> }
+  ];
+
+  const allowedPages = useMemo(() => new Set(navItems.map((n) => n.id)), [navItems]);
 
   useEffect(() => {
     // Restore state from URL
@@ -88,7 +91,7 @@ function App() {
       const params = new URLSearchParams(window.location.search);
       const page = params.get('page');
       const panel = params.get('panel');
-      if (page) setActivePage(page);
+      if (page && allowedPages.has(page)) setActivePage(page);
       if (panel) setSelectedPanel({ id: panel });
     } catch {
       // ignore
@@ -123,34 +126,6 @@ function App() {
   }, [activePage, selectedPanel]);
 
   useEffect(() => {
-    const maybeAutoNavigate = async () => {
-      try {
-        const res = await fetch('/api/panel/readings', { method: 'GET' });
-        if (!res.ok) return;
-        const data = await res.json();
-
-        const p1 = Number(data?.P1?.value || 0);
-        const threshold = 4;
-        if (!(p1 > threshold)) return;
-
-        const now = Date.now();
-        const cooldownMs = 15000;
-        if (now - lastAutoNavTs < cooldownMs) return;
-
-        setSelectedPanel({ id: 'SP-001' });
-        setFaultBannerValue(p1);
-        setFaultBannerOpen(true);
-        setLastAutoNavTs(now);
-      } catch {
-        // ignore
-      }
-    };
-
-    const id = setInterval(maybeAutoNavigate, 3000);
-    return () => clearInterval(id);
-  }, [lastAutoNavTs]);
-
-  useEffect(() => {
     setMountedPages((prev) => {
       if (prev[activePage]) return prev;
       return { ...prev, [activePage]: true };
@@ -172,16 +147,6 @@ function App() {
 
   const drawerWidth = 260;
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
-    { id: 'live', label: 'Live Data', icon: <ShowChart /> },
-    { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
-    { id: 'solar-history', label: 'Solar History', icon: <Insights /> },
-    { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
-    { id: 'maintenance', label: 'Maintenance', icon: <Build /> },
-    { id: 'settings', label: 'Settings', icon: <Settings /> }
-  ];
-
   const handlePanelSelect = (panel) => {
     setSelectedPanel(panel);
     setActivePage('historical');
@@ -201,37 +166,6 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Snackbar
-        open={faultBannerOpen}
-        onClose={(_, reason) => {
-          if (reason === 'clickaway') return;
-          setFaultBannerOpen(false);
-        }}
-        autoHideDuration={8000}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        sx={{ mt: { xs: 7, sm: 8 } }}
-      >
-        <Alert
-          severity="warning"
-          variant="filled"
-          onClose={() => setFaultBannerOpen(false)}
-          action={
-            <Button
-              color="inherit"
-              size="small"
-              onClick={() => {
-                setActivePage('health-report');
-                setFaultBannerOpen(false);
-              }}
-              sx={{ textTransform: 'none', fontWeight: 800 }}
-            >
-              View Health Report
-            </Button>
-          }
-        >
-          Fault detected{faultBannerValue != null ? ` (P1: ${Number(faultBannerValue).toFixed(2)})` : ''}. Manual review recommended.
-        </Alert>
-      </Snackbar>
       {showDigitalTwin ? (
         <DigitalTwin onBack={() => setShowDigitalTwin(false)} panelInfo={panelInfo} />
       ) : (

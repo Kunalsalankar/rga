@@ -285,7 +285,6 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                 reportData.sensor_data?.current
             ),
           temperature_c: absNumber(reportData.current_health?.temperature_c),
-          efficiency_percent: absNumber(reportData.current_health?.efficiency_percent),
           max_power_w:
             absNumber(
               reportData.current_health?.max_power_w ??
@@ -787,9 +786,6 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
                 unit="°C"
                 color="#f59e0b"
               />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <MetricCard title="EFFICIENCY" value={absNumber(showData.current_health.efficiency_percent).toFixed(1)} unit="%" color="#ef4444" />
             </Grid>
           </Grid>
 

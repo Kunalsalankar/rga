@@ -178,9 +178,7 @@ const DashboardHome = () => {
         { label: 'Warning', value: String(warning), icon: <WarningAmber />, color: '#f59e0b' },
         { label: 'Critical', value: String(critical), icon: <ErrorOutline />, color: '#ef4444' },
         { label: 'Total Power', value: `${trunc2(totalW).toFixed(2)} W`, icon: <Bolt />, color: '#16a34a' },
-        { label: 'Today Energy', value: `${energyKwh} kWh`, icon: <Bolt />, color: '#0ea5e9' },
-        { label: 'Peak Power', value: `${trunc2(peakW).toFixed(2)} W`, icon: <Bolt />, color: '#8b5cf6', sub: peakLabel },
-        { label: 'Avg Efficiency', value: `${efficiency}%`, icon: <Bolt />, color: '#6366f1' }
+        // Removed Today Energy / Peak Power / Avg Efficiency to avoid repeating totals and efficiency on the home page
       ];
     },
     [readingsData, energyTodayWh, peakToday]

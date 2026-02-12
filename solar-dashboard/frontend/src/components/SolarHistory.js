@@ -8,9 +8,8 @@ import {
   Skeleton,
   Typography
 } from '@mui/material';
-import { Bolt, CalendarMonth, Refresh, Speed, Tune } from '@mui/icons-material';
+import { Refresh } from '@mui/icons-material';
 import MetricLineChart from './solarHistory/MetricLineChart';
-import SummaryMetricCard from './solarHistory/SummaryMetricCard';
 import { fetchSolarHistory } from '../services/solarHistoryApi';
 import { absNumber, formatAbsFixed } from '../utils/numbers';
 import './SolarHistory.css';
@@ -140,60 +139,6 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
     return data[data.length - 1];
   }, [data]);
 
-  const latestCards = useMemo(() => {
-    return [
-      {
-        label: 'V1',
-        value: latest ? formatAbsFixed(latest.V1, 2) : '—',
-        unit: 'V',
-        color: '#2563eb',
-        icon: <Speed />
-      },
-      {
-        label: 'V2',
-        value: latest ? formatAbsFixed(latest.V2, 2) : '—',
-        unit: 'V',
-        color: '#22c55e',
-        icon: <Speed />
-      },
-      {
-        label: 'V3',
-        value: latest ? formatAbsFixed(latest.V3, 2) : '—',
-        unit: 'V',
-        color: '#f59e0b',
-        icon: <Speed />
-      },
-      {
-        label: 'Current',
-        value: latest ? String(Math.round(absNumber(latest.I))) : '—',
-        unit: 'mA',
-        color: '#6366f1',
-        icon: <Tune />
-      },
-      {
-        label: 'P1',
-        value: latest ? formatAbsFixed(latest.P1, 2) : '—',
-        unit: 'W',
-        color: '#16a34a',
-        icon: <Bolt />
-      },
-      {
-        label: 'P2',
-        value: latest ? formatAbsFixed(latest.P2, 2) : '—',
-        unit: 'W',
-        color: '#ef4444',
-        icon: <Bolt />
-      },
-      {
-        label: 'P3',
-        value: latest ? formatAbsFixed(latest.P3, 2) : '—',
-        unit: 'W',
-        color: '#f97316',
-        icon: <Bolt />
-      }
-    ];
-  }, [latest]);
-
   return (
     <Box className="solarHistoryPage">
       <Box className="solarHistoryHeader">
@@ -262,23 +207,6 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
         </Paper>
       ) : (
         <>
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            {latestCards.map((c) => (
-              <Grid item xs={12} sm={6} md={4} lg={2} key={c.label}>
-                <SummaryMetricCard {...c} />
-              </Grid>
-            ))}
-            <Grid item xs={12} sm={6} md={4} lg={2}>
-              <SummaryMetricCard
-                label="Timestamp"
-                value={latest ? formatDateTime(latest.tsMs) : '—'}
-                unit=""
-                color="#0ea5e9"
-                icon={<CalendarMonth />}
-              />
-            </Grid>
-          </Grid>
-
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <MetricLineChart
