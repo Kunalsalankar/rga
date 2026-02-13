@@ -256,6 +256,85 @@ def generate_recommendation(*, model_output: Dict[str, Any], rag_context: str, m
     
     raise RuntimeError(f"All Gemini API keys failed. Last error: {last_error}")
 
+
+def build_maintenance_prompt(*, model_output: Dict[str, Any], rag_context: str) -> str:
+    defect = str(model_output.get("primary_defect") or "").strip() or "Unknown"
+    confidence = float(model_output.get("confidence") or 0)
+    panel_id = str(model_output.get("panel_id") or "Unknown")
+    urgency = _determine_urgency(defect, confidence, {})
+
+    return (
+        "You are an expert solar PV maintenance planner.\n"
+        "Generate a SHORT, actionable maintenance plan based strictly on the retrieved knowledge.\n"
+        "If the knowledge is not specific enough, provide safe generic best-practice steps.\n"
+        "No greeting, no emojis. Output GitHub-flavored Markdown only.\n"
+        "\n"
+        f"PANEL ID: {panel_id}\n"
+        f"DEFECT: {defect}\n"
+        f"MODEL CONFIDENCE: {confidence:.1%}\n"
+        f"URGENCY: {urgency}\n"
+        "\n"
+        "OUTPUT FORMAT (STRICT):\n"
+        "## Summary\n"
+        "| Field | Value |\n"
+        "|-------|-------|\n"
+        f"| **Panel ID** | {panel_id} |\n"
+        f"| **Defect** | {defect} |\n"
+        f"| **Confidence** | {confidence:.1%} |\n"
+        f"| **Urgency** | {urgency} |\n"
+        "\n"
+        "## Maintenance Actions\n"
+        "Write 4-8 bullet points of actions (short).\n"
+        "\n"
+        "## Safety\n"
+        "Write 2-4 bullet points.\n"
+        "\n"
+        "## Materials / Tools\n"
+        "Write 3-6 bullet points.\n"
+        "\n"
+        "## Verification\n"
+        "Write 3-6 bullet points to confirm the fix (visual + basic electrical checks).\n"
+        "\n"
+        "---\n\n"
+        "RETRIEVED KNOWLEDGE BASE (Use these facts only):\n"
+        f"{rag_context}\n"
+    )
+
+
+def generate_maintenance_plan(*, model_output: Dict[str, Any], rag_context: str) -> str:
+    api_keys = _get_api_keys()
+    if not api_keys:
+        raise RuntimeError("No GEMINI_API_KEY found in environment")
+
+    model = _pick_model()
+    prompt = build_maintenance_prompt(model_output=model_output, rag_context=rag_context)
+
+    last_error: Exception | None = None
+    for api_key in api_keys:
+        try:
+            genai.configure(api_key=api_key)
+            client = genai.GenerativeModel(model)
+            response = client.generate_content(prompt, stream=False)
+            return response.text
+        except StopCandidateException as e:
+            last_error = e
+            print(f"⚠️  Gemini safety filter blocked response: {e}")
+            continue
+        except Exception as e:
+            error_str = str(e)
+            status_code = getattr(e, "status_code", None)
+            if status_code in TRANSIENT_STATUS_CODES or "429" in error_str or "503" in error_str:
+                retry_delay = _parse_retry_delay_seconds(error_str) if status_code == 429 else 60
+                last_error = GeminiRateLimit(retry_after_seconds=retry_delay or 60)
+                continue
+            last_error = e
+            continue
+
+    if isinstance(last_error, GeminiRateLimit):
+        raise last_error
+
+    raise RuntimeError(f"All Gemini API keys failed. Last error: {last_error}")
+
 # ==================== FASTAPI SETUP ====================
 
 def _load_env() -> None:
@@ -292,6 +371,10 @@ def _get_esp32_cam_url() -> str:
     return first_token
 
 AWS_API_ENDPOINT = os.getenv("AWS_API_ENDPOINT", "https://j8ql0tblwb.execute-api.us-east-1.amazonaws.com/prod/values")
+AWS_SOLAR_HISTORY_ENDPOINT = os.getenv(
+    "AWS_SOLAR_HISTORY_ENDPOINT",
+    "https://tm6scx17o3.execute-api.us-east-1.amazonaws.com/solar-history",
+)
 
 def _esp32_candidate_urls(url: str) -> list[str]:
     raw = (url or "").strip()
@@ -424,13 +507,14 @@ def index() -> FileResponse:
 # ==================== PANEL READINGS ENDPOINT ====================
 
 @app.get("/api/panel/readings")
-def get_panel_readings(panel_id: str = Query("SP-001")):
+def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
     """Fetch real sensor readings from AWS SiteWise"""
+    panel_id = (panel_id or "").strip() or (panelId or "").strip() or "SP-001"
     try:
         print(f"📡 Fetching sensor data from AWS API: {AWS_API_ENDPOINT}")
         
         # Fetch from AWS with proper error handling
-        response = requests.get(AWS_API_ENDPOINT, timeout=10)
+        response = requests.get(AWS_API_ENDPOINT, timeout=4)
         response.raise_for_status()
         data = response.json()
         
@@ -499,8 +583,9 @@ def get_panel_readings(panel_id: str = Query("SP-001")):
         }
 
 @app.get("/api/panel/info")
-def get_panel_info(panel_id: str = Query("SP-001")):
+def get_panel_info(panel_id: str = Query(""), panelId: str = Query("")):
     """Get panel information and check if analysis is needed"""
+    panel_id = (panel_id or "").strip() or (panelId or "").strip() or "SP-001"
     try:
         # Get sensor readings
         readings = get_panel_readings(panel_id)
@@ -532,6 +617,56 @@ def get_panel_info(panel_id: str = Query("SP-001")):
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get panel info: {e}")
+
+
+@app.get("/api/solar-history")
+def get_solar_history(assetId: str = Query("SolarPanel_01")):
+    """Proxy historical solar panel data from AWS API Gateway to avoid browser CORS."""
+    asset_id = (assetId or "").strip() or "SolarPanel_01"
+    try:
+        resp = requests.get(
+            AWS_SOLAR_HISTORY_ENDPOINT,
+            params={"assetId": asset_id},
+            timeout=10,
+        )
+
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail={
+                    "error": "AWS solar-history returned error",
+                    "status": resp.status_code,
+                    "body": resp.text,
+                },
+            )
+
+        try:
+            data = resp.json()
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "AWS solar-history response was not valid JSON",
+                    "status": resp.status_code,
+                    "body": resp.text,
+                },
+            )
+
+        if not isinstance(data, list):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "Unexpected solar-history response",
+                    "message": "Expected a JSON array",
+                    "received_type": str(type(data)),
+                },
+            )
+
+        return data
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail={"error": "AWS solar-history timeout"})
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=502, detail={"error": "Failed to fetch solar-history", "message": str(e)})
 
 @app.post("/api/panel/auto-analyze")
 async def auto_analyze(panel_id: str = Query("SP-001")):
@@ -694,6 +829,88 @@ async def auto_analyze(panel_id: str = Query("SP-001")):
     except Exception as e:
         print(f"\n❌ ANALYSIS FAILED: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
+
+@app.get("/api/panel/health-report")
+async def get_health_report(panel_id: str = Query(""), panelId: str = Query("")):
+    pid = (panel_id or "").strip() or (panelId or "").strip() or "SP-001"
+    return await auto_analyze(panel_id=pid)
+
+
+@app.post("/api/panel/maintenance-plan")
+async def maintenance_plan(panel_id: str = Query(""), panelId: str = Query("")):
+    pid = (panel_id or "").strip() or (panelId or "").strip() or "SP-001"
+    try:
+        image_bytes = _get_esp32_image()
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"panel_{pid}_{timestamp}.jpg"
+        file_path = CAPTURE_DIR / filename
+        with open(file_path, "wb") as f:
+            f.write(image_bytes)
+
+        if not Path(MODEL_PATH).exists():
+            raise HTTPException(status_code=500, detail=f"ONNX model not found at: {MODEL_PATH}")
+
+        fault, confidence, top = predict_image_bytes(model_path=MODEL_PATH, image_bytes=image_bytes)
+        defect = str(fault or "").strip()
+        conf = float(confidence or 0)
+
+        if defect.lower() == "clean" and conf >= 0.9:
+            return {
+                "status": "no_maintenance",
+                "panel_id": pid,
+                "timestamp": datetime.now().isoformat(),
+                "image": {"filename": filename, "url": f"/captures/{filename}", "timestamp": timestamp},
+                "defect_analysis": {"defect": None, "confidence": conf, "top_predictions": top},
+                "maintenance_plan": "## Summary\n\nNo maintenance required. Continue monitoring and follow routine cleaning schedule.\n",
+            }
+
+        model_output = {
+            "primary_defect": defect,
+            "confidence": conf,
+            "top_predictions": top,
+            "panel_id": pid,
+        }
+
+        rag_query, rag_context = retrieve_context_from_model_output(store=store, model_output=model_output, k=3)
+        if not rag_context:
+            raise HTTPException(status_code=500, detail="RAG retrieval returned empty context")
+
+        now = time.time()
+        cache_key = f"maintenance::{pid}"
+        cached = _GEMINI_CACHE.get(cache_key)
+        cooldown_seconds = _get_gemini_cooldown_seconds()
+        if cached and (now - float(cached.get("ts", 0))) < cooldown_seconds:
+            plan_md = str(cached.get("suggestion") or "")
+            gemini_error = cached.get("gemini_error")
+        else:
+            try:
+                plan_md = generate_maintenance_plan(model_output=model_output, rag_context=rag_context)
+                gemini_error = None
+            except GeminiRateLimit as e:
+                plan_md = ""
+                gemini_error = f"Gemini is rate-limited. Please retry after {int(e.retry_after_seconds)} seconds."
+            except Exception as e:
+                plan_md = ""
+                gemini_error = f"Gemini call failed: {e}"
+
+            _GEMINI_CACHE[cache_key] = {"ts": now, "suggestion": plan_md, "gemini_error": gemini_error}
+
+        return {
+            "status": "maintenance_generated",
+            "panel_id": pid,
+            "timestamp": datetime.now().isoformat(),
+            "image": {"filename": filename, "url": f"/captures/{filename}", "timestamp": timestamp},
+            "defect_analysis": {"defect": defect, "confidence": conf, "top_predictions": top},
+            "knowledge_context": rag_context,
+            "maintenance_plan": plan_md,
+            "gemini_error": gemini_error,
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate maintenance plan: {e}")
 
 @app.get("/api/workflow/status")
 def get_workflow_status():

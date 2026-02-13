@@ -27,6 +27,21 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
   const prevActiveRef = useRef(isActive);
   const dataRef = useRef([]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`solarHistory::${assetId}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        dataRef.current = parsed;
+        setData(parsed);
+        setLoading(false);
+      }
+    } catch {
+      // ignore
+    }
+  }, [assetId]);
+
   const formatDateTime = (ms) => {
     try {
       return new Intl.DateTimeFormat(undefined, {
@@ -104,6 +119,11 @@ const SolarHistory = ({ assetId = defaultAssetId, isActive = true }) => {
       dataRef.current = normalized;
       setData(normalized);
       setLastUpdated(new Date());
+      try {
+        localStorage.setItem(`solarHistory::${assetId}`, JSON.stringify(normalized));
+      } catch {
+        // ignore
+      }
     } catch (e) {
       if (!hasData) {
         dataRef.current = [];

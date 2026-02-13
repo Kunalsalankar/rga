@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   AppBar,
   Avatar,
@@ -72,16 +72,22 @@ function App() {
   const [panelInfo, setPanelInfo] = useState(null);
   const [showDigitalTwin, setShowDigitalTwin] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
-  const [mountedPages, setMountedPages] = useState({ dashboard: true });
   const [selectedPanel, setSelectedPanel] = useState(null);
+  const [maintenanceAutoGenerateToken, setMaintenanceAutoGenerateToken] = useState(0);
+  const panelInfoInFlightRef = useRef(false);
+  const panelInfoNextAllowedTsRef = useRef(0);
+  const panelInfoCacheKeyRef = useRef('panelInfo::SP-001');
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
-    { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
-    { id: 'solar-history', label: 'Solar History', icon: <Insights /> },
-    { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
-    { id: 'maintenance', label: 'Maintenance', icon: <Build /> }
-  ];
+  const navItems = useMemo(
+    () => [
+      { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+      { id: 'historical', label: 'Historical Analysis', icon: <Insights /> },
+      { id: 'solar-history', label: 'Solar History', icon: <Insights /> },
+      { id: 'health-report', label: 'Health Report', icon: <ErrorOutline /> },
+      { id: 'maintenance', label: 'Maintenance', icon: <Build /> }
+    ],
+    []
+  );
 
   const allowedPages = useMemo(() => new Set(navItems.map((n) => n.id)), [navItems]);
 
@@ -97,6 +103,18 @@ function App() {
       // ignore
     }
 
+    try {
+      const raw = localStorage.getItem(panelInfoCacheKeyRef.current);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          setPanelInfo(parsed);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Fetch initial panel info
     fetchPanelInfo();
     
@@ -106,7 +124,7 @@ function App() {
     }, 5000); // Update every 5 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [allowedPages]);
 
   useEffect(() => {
     // Persist state in URL
@@ -125,23 +143,29 @@ function App() {
     }
   }, [activePage, selectedPanel]);
 
-  useEffect(() => {
-    setMountedPages((prev) => {
-      if (prev[activePage]) return prev;
-      return { ...prev, [activePage]: true };
-    });
-  }, [activePage]);
-
   const fetchPanelInfo = async () => {
+    const now = Date.now();
+    if (panelInfoInFlightRef.current) return;
+    if (now < panelInfoNextAllowedTsRef.current) return;
+
     try {
+      panelInfoInFlightRef.current = true;
       const response = await axios.get(
         `/api/panel/info?panelId=SP-001`,
-        { timeout: 5000 }
+        { timeout: 15000 }
       );
       setPanelInfo(response.data);
+      try {
+        localStorage.setItem(panelInfoCacheKeyRef.current, JSON.stringify(response.data));
+      } catch {
+        // ignore
+      }
       console.log(" Panel info:", response.data);
     } catch (error) {
       console.error(" Error fetching panel info:", error);
+      panelInfoNextAllowedTsRef.current = Date.now() + 15000;
+    } finally {
+      panelInfoInFlightRef.current = false;
     }
   };
 
@@ -157,9 +181,10 @@ function App() {
     setActivePage('health-report');
   };
 
-  const handleOpenScheduleMaintenance = (panelOrId = null) => {
+  const handleOpenScheduleMaintenanceAuto = (panelOrId = null) => {
     const panel = typeof panelOrId === 'string' ? { id: panelOrId } : panelOrId;
     setSelectedPanel(panel);
+    setMaintenanceAutoGenerateToken((t) => t + 1);
     setActivePage('maintenance');
   };
 
@@ -308,42 +333,29 @@ function App() {
             >
               <Toolbar />
               <Box sx={{ px: { xs: 2, md: 3 }, py: 3 }}>
-                {mountedPages.dashboard && (
-                  <Box sx={{ display: activePage === 'dashboard' ? 'block' : 'none' }}>
+                {activePage === 'dashboard' && (
+                  <>
                     <DashboardHome />
                     <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
-                  </Box>
+                  </>
                 )}
 
-                {mountedPages.historical && (
-                  <Box sx={{ display: activePage === 'historical' ? 'block' : 'none' }}>
-                    <HistoricalAnalysis panelId={selectedPanel?.id || null} />
-                  </Box>
+                {activePage === 'historical' && <HistoricalAnalysis panelId={selectedPanel?.id || null} />}
+
+                {activePage === 'solar-history' && <SolarHistory assetId="SolarPanel_01" isActive />}
+
+                {activePage === 'health-report' && (
+                  <HealthReport
+                    panelId={selectedPanel?.id || null}
+                    onScheduleMaintenanceOpen={handleOpenScheduleMaintenanceAuto}
+                  />
                 )}
 
-                {mountedPages['solar-history'] && (
-                  <Box sx={{ display: activePage === 'solar-history' ? 'block' : 'none' }}>
-                    <SolarHistory assetId="SolarPanel_01" isActive={activePage === 'solar-history'} />
-                  </Box>
-                )}
-
-                {mountedPages['health-report'] && (
-                  <Box sx={{ display: activePage === 'health-report' ? 'block' : 'none' }}>
-                    <HealthReport
-                      panelId={selectedPanel?.id || null}
-                      onScheduleMaintenanceOpen={handleOpenScheduleMaintenance}
-                    />
-                  </Box>
-                )}
-
-                {mountedPages.maintenance && (
-                  <Box sx={{ display: activePage === 'maintenance' ? 'block' : 'none' }}>
-                    <ScheduleMaintenance panelId={selectedPanel?.id || null} />
-                  </Box>
-                )}
-
-                {mountedPages[activePage] !== true && (
-                  <SolarPanelGrid onPanelSelect={handlePanelSelect} onHealthReportOpen={handleOpenHealthReport} />
+                {activePage === 'maintenance' && (
+                  <ScheduleMaintenance
+                    panelId={selectedPanel?.id || null}
+                    autoGenerateToken={maintenanceAutoGenerateToken}
+                  />
                 )}
               </Box>
             </Box>

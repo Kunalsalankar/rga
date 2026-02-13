@@ -69,6 +69,23 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
       setError(null);
     }
 
+    if (!cached) {
+      try {
+        const raw = localStorage.getItem(`healthReport::${cacheKey}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            setReportData(parsed);
+            reportCacheRef.current.set(cacheKey, parsed);
+            setLoading(false);
+            setError(null);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const fetchHealthReport = async ({ bypassCache = false } = {}) => {
       try {
         if (bypassCache || !cached) {
@@ -81,6 +98,11 @@ const HealthReport = ({ panelId = null, onScheduleMaintenanceOpen }) => {
         if (cancelled) return;
         setReportData(response.data);
         reportCacheRef.current.set(cacheKey, response.data);
+        try {
+          localStorage.setItem(`healthReport::${cacheKey}`, JSON.stringify(response.data));
+        } catch {
+          // ignore
+        }
         setError(null);
       } catch (err) {
         console.error('Error fetching health report:', err);

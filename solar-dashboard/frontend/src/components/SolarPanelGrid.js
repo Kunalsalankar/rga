@@ -24,6 +24,40 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
   const VALUES_ENDPOINT = '/api/panel/readings';
 
+  const readMetricValue = useCallback(
+    (key) => {
+      if (!panelData) return 0;
+
+      const direct = panelData?.[key];
+      if (direct != null && typeof direct === 'object' && 'value' in direct) return Number(direct.value) || 0;
+      if (typeof direct === 'number') return Number(direct) || 0;
+
+      if (key === 'I') {
+        const nested = panelData?.current;
+        if (nested != null && typeof nested === 'object' && 'value' in nested) return Number(nested.value) || 0;
+        if (typeof nested === 'number') return Number(nested) || 0;
+        return 0;
+      }
+
+      if (key && key.startsWith('V')) {
+        const nested = panelData?.voltage?.[key];
+        if (nested != null && typeof nested === 'object' && 'value' in nested) return Number(nested.value) || 0;
+        if (typeof nested === 'number') return Number(nested) || 0;
+        return 0;
+      }
+
+      if (key && key.startsWith('P')) {
+        const nested = panelData?.power?.[key];
+        if (nested != null && typeof nested === 'object' && 'value' in nested) return Number(nested.value) || 0;
+        if (typeof nested === 'number') return Number(nested) || 0;
+        return 0;
+      }
+
+      return 0;
+    },
+    [panelData]
+  );
+
   const panels = useMemo(
     () => [
       { id: 'SP-001', name: 'Solar Panel 1', location: 'Panel 1' },
@@ -49,6 +83,11 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
       const data = await res.json();
       setPanelData(data);
+      try {
+        localStorage.setItem('panelReadings::latest', JSON.stringify(data));
+      } catch {
+        // ignore
+      }
     } catch (e) {
       setPanelData(null);
       setError(e?.message || 'Failed to fetch live panel values');
@@ -59,6 +98,18 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   }, [VALUES_ENDPOINT]);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('panelReadings::latest');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          setPanelData(parsed);
+          setLoading(false);
+        }
+      }
+    } catch {
+      // ignore
+    }
     fetchPanelData();
     const id = setInterval(fetchPanelData, 5000);
     return () => clearInterval(id);
@@ -89,8 +140,8 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   };
 
   const calculateSummary = () => {
-    const p1 = absNumber(panelData?.P1?.value || 0);
-    const p3 = absNumber(panelData?.P3?.value || 0);
+    const p1 = absNumber(readMetricValue('P1'));
+    const p3 = absNumber(readMetricValue('P3'));
     const totalOutput = p1 + p3;
 
     const classify = (p) => {
@@ -107,15 +158,37 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
     return { totalOutput: trunc2(totalOutput).toFixed(2), totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
   };
 
-  // Generate IV Curve data - Live values (V1/V2/V3 and I in mA)
+  const getPanelMetrics = (panelId) => {
+    if (!panelData) {
+      return { voltage: 0, power: 0, current: 0 };
+    }
+
+    const map = SENSOR_MAP[panelId];
+    const voltage = absNumber(readMetricValue(map.voltageKey));
+    const power = absNumber(readMetricValue(map.powerKey));
+    const current = absNumber(readMetricValue(map.currentKey));
+
+    return { voltage, power, current };
+  };
+
+  const getPanelSensorData = (panelId) => {
+    const metrics = getPanelMetrics(panelId);
+
+    return {
+      voltage: Number(metrics.voltage.toFixed(4)),
+      power: Number(metrics.power.toFixed(4)),
+      current: Number(metrics.current.toFixed(0))
+    };
+  };
+
   const generateIVCurveData = () => {
     if (!panelData) return [];
 
-    const I = absNumber(panelData?.I?.value || 0); // mA
+    const I = absNumber(readMetricValue('I')); // mA
     const points = [
-      { voltage: absNumber(panelData?.V1?.value || 0), current: I, label: 'V1' },
-      { voltage: absNumber(panelData?.V2?.value || 0), current: I, label: 'V2' },
-      { voltage: absNumber(panelData?.V3?.value || 0), current: I, label: 'V3' }
+      { voltage: absNumber(readMetricValue('V1')), current: I, label: 'V1' },
+      { voltage: absNumber(readMetricValue('V2')), current: I, label: 'V2' },
+      { voltage: absNumber(readMetricValue('V3')), current: I, label: 'V3' }
     ];
 
     return points
@@ -128,16 +201,17 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
       .sort((a, b) => a.voltage - b.voltage);
   };
 
-  // Replace the generatePowerTimeline function
-
-  // Generate power production timeline - Use P1/P2/P3 directly (W)
   const generatePowerTimeline = () => {
     if (!panelData) return [];
 
+    const p1 = absNumber(readMetricValue('P1'));
+    const p3 = absNumber(readMetricValue('P3'));
+    const now = new Date();
+
     return [
-      { name: 'Panel 1', power: absNumber(panelData?.P1?.value || 0) },
-      { name: 'Panel 2', power: absNumber(panelData?.P1?.value || 0) },
-      { name: 'Panel 3', power: absNumber(panelData?.P3?.value || 0) }
+      { name: 'Panel 1', power: p1 },
+      { name: 'Panel 2', power: p1 },
+      { name: 'Panel 3', power: p3 }
     ].map((p) => ({ ...p, power: Number(p.power.toFixed(4)) }));
   };
 
@@ -195,37 +269,8 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
     </Paper>
   );
 
-  // Wrap PanelCard with React.memo to prevent unnecessary re-renders
   const PanelCard = React.memo(({ panel, panelData }) => {
-    // Get sensor data based on panel ID
-    const getPanelSensorData = () => {
-      // Default values if no sensor data
-      if (!panelData) {
-        return { 
-          voltage: 0,
-          power: 0,
-          current: 0
-        };
-      }
-
-      try {
-        const map = SENSOR_MAP[panel.id];
-        const voltage = absNumber(panelData?.[map.voltageKey]?.value || 0);
-        const current = absNumber(panelData?.[map.currentKey]?.value || 0); // mA
-        const power = absNumber(panelData?.[map.powerKey]?.value || 0); // W
-
-        return { 
-          voltage: Number(voltage.toFixed(4)),
-          power: Number(power.toFixed(4)),
-          current: Number(current.toFixed(0))
-        };
-      } catch (err) {
-        console.error(`Error parsing sensor data for ${panel.name}:`, err);
-        return { voltage: 0, power: 0, current: 0 };
-      }
-    };
-
-    const sensorData = getPanelSensorData();
+    const sensorData = getPanelSensorData(panel.id);
 
     const status = Math.abs(sensorData.power) >= 5 ? 'active' : Math.abs(sensorData.power) >= 1 ? 'warning' : 'defect';
     const statusMeta =
