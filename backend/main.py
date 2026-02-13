@@ -45,6 +45,9 @@ _GEMINI_CACHE: dict[str, dict[str, Any]] = {}
 # Simple in-memory cache for weather responses
 _WEATHER_CACHE: dict[str, dict[str, Any]] = {}
 
+# Simple in-memory cache for panel readings (avoid slow first paint / AWS hiccups)
+_READINGS_CACHE: dict[str, dict[str, Any]] = {}
+
 @dataclass(frozen=True)
 class GeminiRateLimit(Exception):
     retry_after_seconds: float
@@ -511,10 +514,15 @@ def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
     """Fetch real sensor readings from AWS SiteWise"""
     panel_id = (panel_id or "").strip() or (panelId or "").strip() or "SP-001"
     try:
+        now = time.time()
+        cached = _READINGS_CACHE.get(panel_id)
+        if cached and (now - float(cached.get("ts", 0))) < 5:
+            return cached.get("data")
+
         print(f"📡 Fetching sensor data from AWS API: {AWS_API_ENDPOINT}")
         
         # Fetch from AWS with proper error handling
-        response = requests.get(AWS_API_ENDPOINT, timeout=4)
+        response = requests.get(AWS_API_ENDPOINT, timeout=(2, 4))
         response.raise_for_status()
         data = response.json()
         
@@ -534,7 +542,7 @@ def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
         # Extract current value
         current_value = data.get("I", {}).get("value", 0) if isinstance(data.get("I"), dict) else data.get("I", 0)
         
-        return {
+        payload = {
             "panel_id": panel_id,
             "voltage": {
                 "V1": float(v1_value),
@@ -550,9 +558,12 @@ def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
             "timestamp": datetime.now().isoformat(),
             "alert": float(v1_value) > 4.0
         }
+
+        _READINGS_CACHE[panel_id] = {"ts": now, "data": payload}
+        return payload
     except requests.exceptions.Timeout:
         print(f"⏱️ AWS API timeout, using fallback data")
-        return {
+        payload = {
             "panel_id": panel_id,
             "voltage": {"V1": 6.18, "V2": 7.17, "V3": 16.5},
             "current": 323.0,
@@ -560,10 +571,15 @@ def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
             "timestamp": datetime.now().isoformat(),
             "alert": False
         }
+        _READINGS_CACHE[panel_id] = {"ts": time.time(), "data": payload}
+        return payload
     except requests.exceptions.RequestException as e:
         print(f"❌ Error fetching from AWS API: {e}")
+        cached = _READINGS_CACHE.get(panel_id)
+        if cached and cached.get("data"):
+            return cached.get("data")
         # Return fallback data on error
-        return {
+        payload = {
             "panel_id": panel_id,
             "voltage": {"V1": 6.18, "V2": 7.17, "V3": 16.5},
             "current": 323.0,
@@ -571,8 +587,13 @@ def get_panel_readings(panel_id: str = Query(""), panelId: str = Query("")):
             "timestamp": datetime.now().isoformat(),
             "alert": False
         }
+        _READINGS_CACHE[panel_id] = {"ts": time.time(), "data": payload}
+        return payload
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
+        cached = _READINGS_CACHE.get(panel_id)
+        if cached and cached.get("data"):
+            return cached.get("data")
         return {
             "panel_id": panel_id,
             "voltage": {"V1": 0, "V2": 0, "V3": 0},
