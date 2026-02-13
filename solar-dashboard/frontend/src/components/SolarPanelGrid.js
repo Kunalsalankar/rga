@@ -36,7 +36,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
   const SENSOR_MAP = useMemo(
     () => ({
       'SP-001': { voltageKey: 'V1', powerKey: 'P1', currentKey: 'I' },
-      'SP-002': { voltageKey: 'V2', powerKey: 'P1', currentKey: 'I' },
+      'SP-002': { voltageKey: 'V2', powerKey: 'P2', currentKey: 'I' },
       'SP-003': { voltageKey: 'V3', powerKey: 'P3', currentKey: 'I' }
     }),
     []
@@ -90,8 +90,9 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
   const calculateSummary = () => {
     const p1 = absNumber(panelData?.P1?.value || 0);
+    const p2 = absNumber(panelData?.P2?.value || 0);
     const p3 = absNumber(panelData?.P3?.value || 0);
-    const totalOutput = p1 + p3;
+    const totalOutput = p1 + p2 + p3;
 
     const classify = (p) => {
       const ap = Math.abs(Number(p) || 0);
@@ -99,10 +100,10 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
       if (ap >= 1) return 'warning';
       return 'critical';
     };
-    const classes = [classify(p1), classify(p3)];
+    const classes = [classify(p1), classify(p2), classify(p3)];
     const healthyCount = classes.filter((c) => c === 'healthy').length;
     const unhealthyCount = classes.filter((c) => c === 'critical').length;
-    const averageHealth = ((healthyCount / 2) * 100).toFixed(0);
+    const averageHealth = ((healthyCount / 3) * 100).toFixed(0);
 
     return { totalOutput: trunc2(totalOutput).toFixed(2), totalCapacity: null, healthyCount, unhealthyCount, averageHealth };
   };
@@ -136,7 +137,7 @@ const SolarPanelGrid = ({ onPanelSelect, onHealthReportOpen }) => {
 
     return [
       { name: 'Panel 1', power: absNumber(panelData?.P1?.value || 0) },
-      { name: 'Panel 2', power: absNumber(panelData?.P1?.value || 0) },
+      { name: 'Panel 2', power: absNumber(panelData?.P2?.value || 0) },
       { name: 'Panel 3', power: absNumber(panelData?.P3?.value || 0) }
     ].map((p) => ({ ...p, power: Number(p.power.toFixed(4)) }));
   };
