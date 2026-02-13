@@ -74,6 +74,7 @@ function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [mountedPages, setMountedPages] = useState({ dashboard: true });
   const [selectedPanel, setSelectedPanel] = useState(null);
+  const [maintenanceAutoGenerateToken, setMaintenanceAutoGenerateToken] = useState(0);
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
@@ -160,6 +161,13 @@ function App() {
   const handleOpenScheduleMaintenance = (panelOrId = null) => {
     const panel = typeof panelOrId === 'string' ? { id: panelOrId } : panelOrId;
     setSelectedPanel(panel);
+    setActivePage('maintenance');
+  };
+
+  const handleOpenScheduleMaintenanceAuto = (panelOrId = null) => {
+    const panel = typeof panelOrId === 'string' ? { id: panelOrId } : panelOrId;
+    setSelectedPanel(panel);
+    setMaintenanceAutoGenerateToken((t) => t + 1);
     setActivePage('maintenance');
   };
 
@@ -331,14 +339,17 @@ function App() {
                   <Box sx={{ display: activePage === 'health-report' ? 'block' : 'none' }}>
                     <HealthReport
                       panelId={selectedPanel?.id || null}
-                      onScheduleMaintenanceOpen={handleOpenScheduleMaintenance}
+                      onScheduleMaintenanceOpen={handleOpenScheduleMaintenanceAuto}
                     />
                   </Box>
                 )}
 
                 {mountedPages.maintenance && (
                   <Box sx={{ display: activePage === 'maintenance' ? 'block' : 'none' }}>
-                    <ScheduleMaintenance panelId={selectedPanel?.id || null} />
+                    <ScheduleMaintenance
+                      panelId={selectedPanel?.id || null}
+                      autoGenerateToken={maintenanceAutoGenerateToken}
+                    />
                   </Box>
                 )}
 

@@ -314,6 +314,74 @@ def get_panel_health_report():
             502,
         )
 
+
+@app.route("/api/panel/maintenance-plan", methods=["POST"])
+def get_panel_maintenance_plan():
+    """Generate maintenance plan from FastAPI (YOLOv8 + RAG + Gemini) backend."""
+    panel_id = request.args.get("panel_id") or request.args.get("panelId") or "SP-001"
+
+    try:
+        url = f"{FASTAPI_BACKEND_URL.rstrip('/')}/api/panel/maintenance-plan"
+        print(f"🛠️ Proxying maintenance plan request to FastAPI: {url} (panel_id={panel_id})")
+
+        resp = requests.post(url, params={"panel_id": panel_id}, timeout=180)
+        if resp.status_code >= 400:
+            print(f"❌ FastAPI responded with {resp.status_code}: {resp.text[:500]}")
+            return (
+                jsonify(
+                    {
+                        "error": "FastAPI returned error",
+                        "fastapi_status": resp.status_code,
+                        "fastapi_body": resp.text,
+                    }
+                ),
+                resp.status_code,
+            )
+
+        try:
+            return jsonify(resp.json()), 200
+        except Exception:
+            return (
+                jsonify(
+                    {
+                        "error": "FastAPI response was not valid JSON",
+                        "fastapi_status": resp.status_code,
+                        "fastapi_body": resp.text,
+                    }
+                ),
+                502,
+            )
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "FastAPI maintenance plan timeout"}), 504
+    except requests.exceptions.ConnectionError as e:
+        print(f"❌ Cannot connect to FastAPI at {FASTAPI_BACKEND_URL}: {e}")
+        return (
+            jsonify(
+                {
+                    "error": "Cannot connect to FastAPI backend",
+                    "fastapi_base_url": FASTAPI_BACKEND_URL,
+                    "message": str(e),
+                }
+            ),
+            502,
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching maintenance plan from FastAPI: {e}")
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        body = getattr(getattr(e, "response", None), "text", None)
+        return (
+            jsonify(
+                {
+                    "error": "Failed to fetch maintenance plan from FastAPI",
+                    "fastapi_base_url": FASTAPI_BACKEND_URL,
+                    "fastapi_status": status,
+                    "fastapi_body": body,
+                    "message": str(e),
+                }
+            ),
+            502,
+        )
+
 def _get_dummy_sensor_data(asset_id):
     """Return dummy sensor data as fallback"""
     return {
